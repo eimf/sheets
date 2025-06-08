@@ -13,22 +13,22 @@ interface ServicesState {
 const getCurrentCycle = () => {
   const today = new Date();
   const currentDay = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  const daysToMonday = currentDay === 0 ? -6 : 1 - currentDay;
   
-  // Find the Monday of this week
-  const mondayOfThisWeek = new Date(today);
-  mondayOfThisWeek.setDate(today.getDate() + daysToMonday);
+  // Find the Thursday of this week
+  const daysToThursday = currentDay === 0 ? 4 : 4 - currentDay;
+  const thursdayOfThisWeek = new Date(today);
+  thursdayOfThisWeek.setDate(today.getDate() + daysToThursday);
   
   // Determine if we're in the first or second week of the bi-weekly cycle
-  const weekNumber = Math.floor(mondayOfThisWeek.getTime() / (1000 * 60 * 60 * 24 * 7));
+  const weekNumber = Math.floor(thursdayOfThisWeek.getTime() / (1000 * 60 * 60 * 24 * 7));
   const isFirstWeek = weekNumber % 2 === 0;
   
   let startDate: Date;
   if (isFirstWeek) {
-    startDate = new Date(mondayOfThisWeek);
+    startDate = new Date(thursdayOfThisWeek);
   } else {
-    startDate = new Date(mondayOfThisWeek);
-    startDate.setDate(startDate.getDate() - 7);
+    startDate = new Date(thursdayOfThisWeek);
+    startDate.setDate(startDate.getDate() - 14);
   }
   
   const endDate = new Date(startDate);

@@ -76,6 +76,7 @@ export interface User {
 export interface Service {
   id: number;
   user_id: number;
+  cycle_id: number; // Added cycle_id
   client_name: string;
   service_type: string;
   custom_service_type?: string;
@@ -83,8 +84,8 @@ export interface Service {
   custom_payment_source?: string;
   price: number;
   tip?: number;
-  cycle_start_date: string;
-  cycle_end_date: string;
+  cycle_start_date: string; // Provided by backend join for convenience
+  cycle_end_date: string;   // Provided by backend join for convenience
   service_date: string;
   notes?: string;
   created_at: string;
@@ -156,11 +157,11 @@ export const salonApi = createApi({
       query: ({ userId }) => `/services?userId=${userId}`,
       providesTags: ['Service'],
     }),
-    getServicesByCycle: builder.query<ServicesResponse, { userId: number; cycleStart: string; cycleEnd: string }>({
-      query: ({ userId, cycleStart, cycleEnd }) => `/services/cycle?userId=${userId}&cycleStart=${cycleStart}&cycleEnd=${cycleEnd}`,
+    getServicesByCycle: builder.query<ServicesResponse, { cycleStartDate: string; cycleEndDate: string }>({ // userId removed from args as it's from session
+      query: ({ cycleStartDate, cycleEndDate }) => `/services?cycleStartDate=${cycleStartDate}&cycleEndDate=${cycleEndDate}`, // Corrected endpoint and params
       providesTags: ['Service'],
     }),
-    createService: builder.mutation<{ success: boolean; message: string; serviceId: number }, { userId: number } & ServiceRequest>({
+    createService: builder.mutation<{ success: boolean; service: Service }, { userId: number } & ServiceRequest>({ // Updated return type
       query: ({ userId, ...service }) => ({
         url: '/services',
         method: 'POST',
@@ -169,7 +170,7 @@ export const salonApi = createApi({
       invalidatesTags: ['Service'],
     }),
 
-    updateService: builder.mutation<{ success: boolean; message: string }, { userId: number; id: number } & Partial<ServiceRequest>>({
+    updateService: builder.mutation<{ success: boolean; service: Service }, { userId: number; id: number } & Partial<ServiceRequest>>({ // Updated return type
       query: ({ userId, id, ...service }) => ({
         url: `/services/${id}`,
         method: 'PUT',
@@ -198,4 +199,4 @@ export const {
   useCreateServiceMutation,
   useUpdateServiceMutation,
   useDeleteServiceMutation,
-} = salonApi as const;
+} = salonApi;

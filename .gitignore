@@ -35,5 +35,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# SQLite
-data/sheets.db
+# SQLite database directory
+server/data/
+
+# Server-specific files (e.g., logs, uploads, etc.)
+server/logs/
+server/uploads/
+server/tmp/

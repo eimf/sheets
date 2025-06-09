@@ -103,7 +103,7 @@ const authSlice = createSlice({
           }
           
           // Validate token format
-          if (!token || typeof token !== 'string' || token.length !== 36) {
+          if (!token || typeof token !== 'string' || token.length !== 64) {
             console.error('Invalid token format:', token);
             return;
           }

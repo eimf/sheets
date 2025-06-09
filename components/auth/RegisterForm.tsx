@@ -16,8 +16,7 @@ import { setCredentials } from '@/lib/slices/authSlice';
 import { toast } from 'sonner';
 
 const registerSchema = z.object({
-  fullName: z.string().min(2, 'Full name must be at least 2 characters'),
-  username: z.string().min(3, 'Username must be at least 3 characters'),
+  stylish: z.string().min(2, 'Stylish name must be at least 2 characters'), // Renamed from fullName, username removed
   email: z.string().email('Please enter a valid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   confirmPassword: z.string(),
@@ -46,8 +45,7 @@ export default function RegisterForm() {
   const onSubmit = async (data: RegisterData) => {
     try {
       const result = await register({
-        fullName: data.fullName,
-        username: data.username,
+        stylish: data.stylish, // Renamed from fullName, username removed
         email: data.email,
         password: data.password,
       }).unwrap();
@@ -86,34 +84,18 @@ export default function RegisterForm() {
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="fullName" className="text-sm font-medium text-gray-700">
-                Full Name
+              <Label htmlFor="stylish" className="text-sm font-medium text-gray-700">
+                Stylish
               </Label>
               <Input
-                id="fullName"
+                id="stylish"
                 type="text"
-                placeholder="Enter your full name"
+                placeholder="Enter your stylish name"
                 className="h-11 border-gray-200 focus:border-rose-gold focus:ring-rose-gold/20"
-                {...registerField('fullName')}
+                {...registerField('stylish')}
               />
-              {errors.fullName && (
-                <p className="text-sm text-red-500">{errors.fullName.message}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="username" className="text-sm font-medium text-gray-700">
-                Username
-              </Label>
-              <Input
-                id="username"
-                type="text"
-                placeholder="Choose a username"
-                className="h-11 border-gray-200 focus:border-rose-gold focus:ring-rose-gold/20"
-                {...registerField('username')}
-              />
-              {errors.username && (
-                <p className="text-sm text-red-500">{errors.username.message}</p>
+              {errors.stylish && (
+                <p className="text-sm text-red-500">{errors.stylish.message}</p>
               )}
             </div>
 

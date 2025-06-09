@@ -51,7 +51,7 @@ export default function Header() {
 
         <div className="flex items-center space-x-4">
           <div className="text-right hidden sm:block">
-            <p className="text-sm font-medium text-gray-800">{user?.fullName}</p>
+            <p className="text-sm font-medium text-gray-800">{user?.stylish}</p>
             <p className="text-xs text-gray-500 capitalize">{user?.role}</p>
           </div>
 
@@ -60,7 +60,7 @@ export default function Header() {
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar className="h-10 w-10">
                   <AvatarFallback className="bg-rose-gold text-white">
-                    {user?.fullName ? getInitials(user.fullName) : 'U'}
+                    {user?.stylish ? getInitials(user.stylish) : 'U'}
                   </AvatarFallback>
                 </Avatar>
               </Button>
@@ -68,7 +68,7 @@ export default function Header() {
             <DropdownMenuContent className="w-56" align="end" forceMount>
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">{user?.fullName}</p>
+                  <p className="text-sm font-medium leading-none">{user?.stylish}</p>
                   <p className="text-xs leading-none text-muted-foreground">
                     {user?.email}
                   </p>

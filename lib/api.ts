@@ -66,9 +66,8 @@ const baseQueryWithReauth = async (args: any, api: any, extraOptions: any) => {
 
 export interface User {
   id: number;
-  username: string;
   email: string;
-  fullName: string;
+  stylish: string; // Renamed from fullName, username removed
   role: string;
   createdAt?: string;
 }
@@ -132,20 +131,19 @@ export const salonApi = createApi({
         method: 'POST',
         body: credentials,
       }),
-      invalidatesTags: ['User'],
+      invalidatesTags: ['User', 'Service'], // Added 'Service' to invalidate service cache
     }),
     register: builder.mutation<AuthResponse, { 
-      username: string; 
       email: string; 
       password: string; 
-      fullName: string; 
+      stylish: string; // Renamed from fullName, username removed
     }>({
       query: (userData) => ({
         url: '/auth/register',
         method: 'POST',
         body: userData,
       }),
-      invalidatesTags: ['User'],
+      invalidatesTags: ['User', 'Service'], // Added 'Service' to invalidate service cache
     }),
     getProfile: builder.query<{ success: boolean; user: User }, void>({
       query: () => '/auth/profile',
@@ -158,23 +156,23 @@ export const salonApi = createApi({
       providesTags: ['Service'],
     }),
     getServicesByCycle: builder.query<ServicesResponse, { cycleStartDate: string; cycleEndDate: string }>({ // userId removed from args as it's from session
-      query: ({ cycleStartDate, cycleEndDate }) => `/services?cycleStartDate=${cycleStartDate}&cycleEndDate=${cycleEndDate}`, // Corrected endpoint and params
+      query: ({ cycleStartDate, cycleEndDate }) => `/services/cycle?cycleStartDate=${cycleStartDate}&cycleEndDate=${cycleEndDate}`, // Corrected endpoint to /services/cycle
       providesTags: ['Service'],
     }),
-    createService: builder.mutation<{ success: boolean; service: Service }, { userId: number } & ServiceRequest>({ // Updated return type
-      query: ({ userId, ...service }) => ({
+    createService: builder.mutation<{ success: boolean; service: Service }, ServiceRequest>({ // userId removed from args
+      query: (service) => ({
         url: '/services',
         method: 'POST',
-        body: { ...service, userId },
+        body: service, // userId removed from body
       }),
       invalidatesTags: ['Service'],
     }),
 
-    updateService: builder.mutation<{ success: boolean; service: Service }, { userId: number; id: number } & Partial<ServiceRequest>>({ // Updated return type
-      query: ({ userId, id, ...service }) => ({
+    updateService: builder.mutation<{ success: boolean; service: Service }, { id: number } & Partial<ServiceRequest>>({ // userId removed from args
+      query: ({ id, ...service }) => ({
         url: `/services/${id}`,
         method: 'PUT',
-        body: { ...service, userId },
+        body: service, // userId removed from body
       }),
       invalidatesTags: ['Service'],
     }),

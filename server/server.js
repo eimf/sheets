@@ -34,10 +34,9 @@ const createTables = (db) => {
         // Users table
         db.run(`CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
             email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
-            full_name TEXT NOT NULL,
+            stylish TEXT NOT NULL, -- Renamed from full_name, username removed
             role TEXT DEFAULT 'user',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`, (err) => {
@@ -178,10 +177,10 @@ startServer();
 
 // Auth endpoints
 app.post("/api/auth/register", (req, res) => {
-    const { username, email, password, fullName } = req.body;
+    const { email, password, stylish } = req.body; // username removed, fullName changed to stylish
 
-    if (!username || !email || !password || !fullName) {
-        res.status(400).json({ error: "All fields are required" });
+    if (!email || !password || !stylish) { // username removed, fullName changed to stylish
+        res.status(400).json({ error: "Email, password, and stylish name are required" });
         return;
     }
 
@@ -189,13 +188,13 @@ app.post("/api/auth/register", (req, res) => {
     const hashedPassword = password; // In production, use bcrypt.hashSync()
 
     db.run(
-        "INSERT INTO users (username, email, password, full_name) VALUES (?, ?, ?, ?)",
-        [username, email, hashedPassword, fullName],
+        "INSERT INTO users (email, password, stylish) VALUES (?, ?, ?)", // username removed, full_name changed to stylish
+        [email, hashedPassword, stylish], // username removed, fullName changed to stylish
         function (err) {
             if (err) {
-                if (err.message.includes("UNIQUE constraint failed")) {
+                if (err.message.includes("UNIQUE constraint failed") && err.message.includes("users.email")) {
                     res.status(400).json({
-                        error: "Username or email already exists",
+                        error: "Email already exists", // Username part removed
                     });
                 } else {
                     res.status(500).json({ error: err.message });
@@ -219,7 +218,7 @@ app.post("/api/auth/register", (req, res) => {
 
                     // Get the user data to return
                     db.get(
-                        "SELECT id, username, email, full_name FROM users WHERE id = ?",
+                        "SELECT id, email, stylish, role FROM users WHERE id = ?", // Fetched stylish and role
                         [userId],
                         (err, user) => {
                             if (err) {
@@ -231,11 +230,11 @@ app.post("/api/auth/register", (req, res) => {
                                 success: true,
                                 message: "User registered successfully",
                                 token: sessionId,
-                                user: {
+                                user: { // Ensure this matches the User type in lib/api.ts
                                     id: user.id,
-                                    username: user.username,
                                     email: user.email,
-                                    fullName: user.full_name
+                                    stylish: user.stylish, // Use stylish
+                                    role: user.role       // Include role
                                 }
                             });
                         }
@@ -325,9 +324,8 @@ app.get("/api/auth/profile", (req, res) => {
                 success: true,
                 user: {
                     id: user.id,
-                    username: user.username,
                     email: user.email,
-                    fullName: user.full_name,
+                    stylish: user.stylish,
                     role: user.role,
                 },
             });
@@ -385,15 +383,16 @@ app.get("/api/services", (req, res) => {
 
 app.get("/api/services/cycle", (req, res) => {
     const { authorization } = req.headers;
-    const { cycleStart, cycleEnd } = req.query;
+    const { cycleStartDate, cycleEndDate } = req.query; // Corrected to cycleStartDate and cycleEndDate
 
     if (!authorization) {
         res.status(401).json({ error: "Authentication required" });
         return;
     }
 
-    if (!cycleStart || !cycleEnd) {
-        res.status(400).json({ error: "Cycle dates are required" });
+    // Corrected check to use cycleStartDate and cycleEndDate
+    if (!cycleStartDate || !cycleEndDate) { 
+        res.status(400).json({ error: "cycleStartDate and cycleEndDate query parameters are required" }); // Updated error message for clarity
         return;
     }
 
@@ -412,14 +411,8 @@ app.get("/api/services/cycle", (req, res) => {
                 return;
             }
 
-            // Note: The original req.query destructuring for cycleStart, cycleEnd was just above this block.
-            // We are replacing that logic too.
-            const { cycleStartDate, cycleEndDate } = req.query;
-
-            if (!cycleStartDate || !cycleEndDate) {
-                res.status(400).json({ error: "cycleStartDate and cycleEndDate query parameters are required" });
-                return;
-            }
+            // cycleStartDate and cycleEndDate are already in scope from the top of the handler.
+            // The redundant destructuring and check for them here have been removed.
 
             // Find the cycle_id based on cycleStartDate and cycleEndDate
             db.get("SELECT id FROM cycles WHERE start_date = ? AND end_date = ?", 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { X, Scissors, DollarSign, User, Calendar, FileText, CreditCard, Building2, Plus } from 'lucide-react';
@@ -122,13 +122,14 @@ export default function ServiceForm({ service, onClose }: ServiceFormProps) {
   }, [service, setValue]);
 
   const onSubmit = async (data: ServiceFormData) => {
+    console.log('Form submitted with data:', data);
     try {
       if (!user?.id) {
+        console.error('No user ID found');
         throw new Error('User ID is required');
       }
 
       const serviceData = {
-        userId: user.id,
         clientName: data.clientName,
         serviceType: data.serviceType,
         customServiceType: data.customServiceType,
@@ -143,16 +144,21 @@ export default function ServiceForm({ service, onClose }: ServiceFormProps) {
       };
 
       if (isEditing && service) {
+        console.log('Updating service with data:', serviceData);
         await updateService({ id: service.id, ...serviceData }).unwrap();
         toast.success('Service updated successfully');
       } else {
+        console.log('Creating new service with data:', serviceData);
         await createService(serviceData).unwrap();
         toast.success('Service created successfully');
       }
 
       onClose();
     } catch (error: any) {
-      toast.error(error.data?.message || `Failed to ${isEditing ? 'update' : 'create'} service`);
+      console.error('Error in form submission:', error);
+      const errorMessage = error.data?.message || error.message || `Failed to ${isEditing ? 'update' : 'create'} service`;
+      console.error('Error details:', error);
+      toast.error(errorMessage);
     }
   };
 
@@ -191,18 +197,27 @@ export default function ServiceForm({ service, onClose }: ServiceFormProps) {
           <div className="space-y-4">
             <div>
               <Label htmlFor="serviceType">Service Type</Label>
-              <Select {...register('serviceType')}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select service type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="haircut">Haircut</SelectItem>
-                  <SelectItem value="shave">Shave</SelectItem>
-                  <SelectItem value="beard">Beard</SelectItem>
-                  <SelectItem value="haircut_and_shave">Haircut & Shave</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
+              <Controller
+                name="serviceType"
+                control={form.control}
+                render={({ field }) => (
+                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                    <SelectTrigger id="serviceType">
+                      <SelectValue placeholder="Select service type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="haircut">Haircut</SelectItem>
+                      <SelectItem value="shave">Shave</SelectItem>
+                      <SelectItem value="beard">Beard</SelectItem>
+                      <SelectItem value="haircut_and_shave">Haircut & Shave</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {errors.serviceType && (
+                <p className="mt-1 text-sm text-red-500">{errors.serviceType.message}</p>
+              )}
               {watch('serviceType') === 'other' && (
                 <div className="mt-2">
                   <Label htmlFor="customServiceType">Custom Service Type</Label>
@@ -216,18 +231,27 @@ export default function ServiceForm({ service, onClose }: ServiceFormProps) {
 
             <div>
               <Label htmlFor="paymentSource">Payment Source</Label>
-              <Select {...register('paymentSource')}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select payment source" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="credit">Credit</SelectItem>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="cashapp">CashApp</SelectItem>
-                  <SelectItem value="zelle">Zelle</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
+              <Controller
+                name="paymentSource"
+                control={form.control}
+                render={({ field }) => (
+                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                    <SelectTrigger id="paymentSource">
+                      <SelectValue placeholder="Select payment source" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="credit">Credit</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="cashapp">CashApp</SelectItem>
+                      <SelectItem value="zelle">Zelle</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {errors.paymentSource && (
+                <p className="mt-1 text-sm text-red-500">{errors.paymentSource.message}</p>
+              )}
               {watch('paymentSource') === 'other' && (
                 <div className="mt-2">
                   <Label htmlFor="customPaymentSource">Custom Payment Source</Label>

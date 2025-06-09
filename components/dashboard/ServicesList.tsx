@@ -47,9 +47,8 @@ export default function ServicesList() {
   const [showServiceForm, setShowServiceForm] = useState(false);
 
   const { data, isLoading, error } = useGetServicesByCycleQuery({
-    userId: user?.id || 0,
-    cycleStart: currentCycle.startDate,
-    cycleEnd: currentCycle.endDate,
+    cycleStartDate: currentCycle.startDate, // Renamed from cycleStart
+    cycleEndDate: currentCycle.endDate,     // Renamed from cycleEnd
   });
 
   const [deleteService] = useDeleteServiceMutation();
@@ -174,7 +173,7 @@ export default function ServicesList() {
               </SelectContent>
             </Select>
           </div>
-          <Button onClick={() => setEditingService(null)}>
+          <Button onClick={() => { setEditingService(null); setShowServiceForm(true); }}>
             <Plus className="mr-2 h-4 w-4" />
             New Service
           </Button>
@@ -194,34 +193,56 @@ export default function ServicesList() {
               </tr>
             </thead>
             <tbody>
-              {filteredServices.map((service) => (
-                <tr key={service.id} className="border-b">
-                  <td className="p-4">{service.client_name}</td>
-                  <td className="p-4">{service.service_type}</td>
-                  <td className="p-4">{service.payment_source}</td>
-                  <td className="p-4">{formatCurrency(service.price)}</td>
-                  <td className="p-4">{formatCurrency(service.tip ?? 0)}</td>
-                  <td className="p-4">{formatDate(service.service_date)}</td>
-                  <td className="p-4">
-                    <div className="flex items-center space-x-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditingService(service)}
-                      >
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteId(service.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+              {filteredServices.length > 0 ? (
+                filteredServices.map((service) => (
+                  <tr key={service.id} className="border-b hover:bg-gray-50">
+                    <td className="p-4 whitespace-nowrap">{service.client_name}</td>
+                    <td className="p-4 whitespace-nowrap">{service.service_type}{service.custom_service_type ? ` (${service.custom_service_type})` : ''}</td>
+                    <td className="p-4 whitespace-nowrap">{service.payment_source}{service.custom_payment_source ? ` (${service.custom_payment_source})` : ''}</td>
+                    <td className="p-4 whitespace-nowrap text-right">{formatCurrency(service.price)}</td>
+                    <td className="p-4 whitespace-nowrap text-right">{formatCurrency(service.tip ?? 0)}</td>
+                    <td className="p-4 whitespace-nowrap">{formatDate(service.service_date)}</td>
+                    <td className="p-4 whitespace-nowrap">
+                      <div className="flex items-center space-x-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setEditingService(service)}
+                        >
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setDeleteId(service.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-gray-500">
+                    <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-600 mb-2">
+                      {services.length === 0 
+                        ? "No services logged yet"
+                        : "No services match criteria"
+                      }
+                    </h3>
+                    <p className="text-sm">
+                      {services.length === 0 
+                        ? "Click 'New Service' to add your first one for this cycle."
+                        : "Try adjusting your search or filter."
+                      }
+                    </p>
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -246,90 +267,6 @@ export default function ServicesList() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-
-
-      {/* Services List */}
-      <div className="space-y-4">
-        {filteredServices.length === 0 ? (
-          <Card className="border-0 shadow-sm">
-            <CardContent className="p-12 text-center">
-              <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-600 mb-2">No services found</h3>
-              <p className="text-gray-500 mb-6">
-                {services.length === 0 
-                  ? "You haven't logged any services for this cycle yet."
-                  : "No services match your current search criteria."
-                }
-              </p>
-              <Button
-                onClick={() => setShowServiceForm(true)}
-                className="bg-rose-gold hover:bg-rose-gold/90 text-white"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Add Your First Service
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          filteredServices.map((service) => (
-            <Card key={service.id} className="border-0 shadow-sm hover:shadow-md transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-4 mb-3">
-                      <h3 className="text-lg font-semibold text-gray-800">{service.client_name}</h3>
-                      <span className="px-3 py-1 bg-rose-gold/10 text-rose-gold text-sm font-medium rounded-full">
-                        {service.service_type}
-                      </span>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm text-gray-600">
-                      <div className="flex items-center">
-                        <DollarSign className="w-4 h-4 mr-2 text-green-500" />
-                        <span className="font-medium">{formatCurrency(service.price)}</span>
-                        {service.tip && (
-                          <span className="ml-2 text-blue-600">
-                            (Tip: {formatCurrency(service.tip)})
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center">
-                        <Calendar className="w-4 h-4 mr-2 text-gray-400" />
-                        <span>{formatDate(service.service_date)}</span>
-                      </div>
-                      {service.notes && (
-                        <div className="sm:col-span-1">
-                          <span className="text-gray-500">Notes: {service.notes}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2 ml-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEditingService(service)}
-                      className="h-8 w-8 p-0 border-gray-200 hover:bg-gray-50"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setDeleteId(service.id)}
-                      className="h-8 w-8 p-0 border-red-200 text-red-600 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
 
       {/* Service Form Modal */}
       {(showServiceForm || editingService) && (

@@ -18,6 +18,11 @@ const ensureDirectory = async (dirPath) => {
     }
 };
 
+const projectRootScriptsDir = path.resolve(__dirname, '../scripts');
+ensureDirectory(projectRootScriptsDir); // Ensure scripts directory exists at project root
+
+
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -47,25 +52,36 @@ const createTables = (db) => {
             )`, (err) => {
                 if (err) return reject(err);
 
-                // Services table
-                db.run(`CREATE TABLE IF NOT EXISTS services (
+                // Cycles table
+                db.run(`CREATE TABLE IF NOT EXISTS cycles (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    client_name TEXT NOT NULL,
-                    service_type TEXT NOT NULL,
-                    price DECIMAL(10,2) NOT NULL,
-                    tip DECIMAL(10,2),
-                    commission DECIMAL(10,2),
-                    cycle_start_date DATE NOT NULL,
-                    cycle_end_date DATE NOT NULL,
-                    service_date DATE,
-                    notes TEXT,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
+                    UNIQUE(start_date, end_date) -- Assuming cycles are global and unique by date range
                 )`, (err) => {
                     if (err) return reject(err);
-                    resolve();
+
+                    // Services table
+                    db.run(`CREATE TABLE IF NOT EXISTS services (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,     -- Made NOT NULL
+                        cycle_id INTEGER NOT NULL,    -- Added cycle_id
+                        client_name TEXT NOT NULL,
+                        service_type TEXT NOT NULL,
+                        price DECIMAL(10,2) NOT NULL,
+                        tip DECIMAL(10,2),
+                        commission DECIMAL(10,2),
+                        service_date DATE,            -- Kept service_date for the actual service event
+                        notes TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id),
+                        FOREIGN KEY (cycle_id) REFERENCES cycles (id) -- Added FK to cycles
+                    )`, (err) => {
+                        if (err) return reject(err);
+                        resolve();
+                    });
                 });
             });
         });
@@ -396,26 +412,53 @@ app.get("/api/services/cycle", (req, res) => {
                 return;
             }
 
-            db.all(
-                "SELECT * FROM services WHERE user_id = ? AND cycle_start_date <= ? AND cycle_end_date >= ? ORDER BY created_at DESC",
-                [session.user_id, cycleEnd, cycleStart],
-                (err, services) => {
-                    if (err) {
-                        res.status(500).json({ error: err.message });
-                        return;
-                    }
+            // Note: The original req.query destructuring for cycleStart, cycleEnd was just above this block.
+            // We are replacing that logic too.
+            const { cycleStartDate, cycleEndDate } = req.query;
 
-                    res.json({
-                        success: true,
-                        services: services.map((service) => ({
-                            ...service,
-                            cycle_start_date: service.cycle_start_date,
-                            cycle_end_date: service.cycle_end_date,
-                            service_date: service.service_date,
-                        })),
-                    });
+            if (!cycleStartDate || !cycleEndDate) {
+                res.status(400).json({ error: "cycleStartDate and cycleEndDate query parameters are required" });
+                return;
+            }
+
+            // Find the cycle_id based on cycleStartDate and cycleEndDate
+            db.get("SELECT id FROM cycles WHERE start_date = ? AND end_date = ?", 
+                [cycleStartDate, cycleEndDate], 
+                (err, cycle) => {
+                if (err) {
+                    res.status(500).json({ error: `Error finding cycle: ${err.message}` });
+                    return;
                 }
-            );
+
+                if (!cycle) {
+                    // If cycle doesn't exist, return empty services array for this period
+                    res.json({ success: true, services: [] });
+                    return;
+                }
+
+                const cycleId = cycle.id;
+                const userId = session.user_id;
+
+                // Fetch services for the given user_id and cycle_id, joining with cycles table to get cycle dates
+                db.all(
+                    `SELECT s.*, c.start_date as cycle_start_date, c.end_date as cycle_end_date
+                     FROM services s
+                     JOIN cycles c ON s.cycle_id = c.id
+                     WHERE s.user_id = ? AND s.cycle_id = ? 
+                     ORDER BY s.service_date DESC, s.created_at DESC`,
+                    [userId, cycleId],
+                    (err, services) => {
+                        if (err) {
+                            res.status(500).json({ error: `Error fetching services: ${err.message}` });
+                            return;
+                        }
+                        res.json({
+                            success: true,
+                            services: services // The mapping is no longer needed as dates are selected from join
+                        });
+                    }
+                );
+            });
         }
     );
 });
@@ -464,32 +507,82 @@ app.post("/api/services", (req, res) => {
                 return;
             }
 
-            db.run(
-                "INSERT INTO services (user_id, client_name, service_type, price, tip, cycle_start_date, cycle_end_date, service_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [
-                    session.user_id,
-                    clientName,
-                    serviceType,
-                    price,
-                    tip || null,
-                    cycleStartDate,
-                    cycleEndDate,
-                    serviceDate || null,
-                    notes || null,
-                ],
-                function (err) {
+            const userId = session.user_id;
+
+            // Find or create cycle
+            db.get(
+                "SELECT id FROM cycles WHERE start_date = ? AND end_date = ?",
+                [cycleStartDate, cycleEndDate],
+                (err, cycle) => {
                     if (err) {
-                        res.status(500).json({ error: err.message });
+                        res.status(500).json({ error: `Error finding cycle: ${err.message}` });
                         return;
                     }
 
-                    res.json({
-                        success: true,
-                        message: "Service created successfully",
-                        serviceId: this.lastID,
-                    });
+                    let cycleId;
+                    if (cycle) {
+                        cycleId = cycle.id;
+                        insertService(userId, cycleId);
+                    } else {
+                        db.run(
+                            "INSERT INTO cycles (start_date, end_date) VALUES (?, ?)",
+                            [cycleStartDate, cycleEndDate],
+                            function (err) {
+                                if (err) {
+                                    res.status(500).json({ error: `Error creating cycle: ${err.message}` });
+                                    return;
+                                }
+                                cycleId = this.lastID;
+                                insertService(userId, cycleId);
+                            }
+                        );
+                    }
                 }
             );
+
+            function insertService(userId, cycleId) {
+                db.run(
+                    `INSERT INTO services (
+                        user_id,
+                        cycle_id,
+                        client_name,
+                        service_type,
+                        price,
+                        tip,
+                        service_date,
+                        notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, 
+                    [
+                        userId,
+                        cycleId,
+                        clientName,
+                        serviceType,
+                        price,
+                        tip || null, // Ensure null if undefined/empty
+                        serviceDate || null, // Ensure null if undefined/empty
+                        notes || null // Ensure null if undefined/empty
+                    ],
+                    function (err) {
+                        if (err) {
+                            res.status(500).json({ error: `Error inserting service: ${err.message}` });
+                            return;
+                        }
+                        // Fetch the created service to return it, joining with cycle for dates
+                        db.get(`
+                            SELECT s.*, c.start_date as cycle_start_date, c.end_date as cycle_end_date 
+                            FROM services s
+                            JOIN cycles c ON s.cycle_id = c.id
+                            WHERE s.id = ?
+                        `, [this.lastID], (err, newService) => {
+                            if (err) {
+                                res.status(500).json({ error: `Error fetching new service: ${err.message}` });
+                                return;
+                            }
+                            res.status(201).json({ success: true, service: newService });
+                        });
+                    }
+                );
+            }
         }
     );
 });
@@ -533,47 +626,112 @@ app.put("/api/services/:id", (req, res) => {
                 return;
             }
 
-            db.get(
-                "SELECT * FROM services WHERE id = ? AND user_id = ?",
-                [id, session.user_id],
-                (err, service) => {
+            const userId = session.user_id;
+
+            // Function to perform the actual service update
+            const performUpdate = (serviceToUpdate, newCycleId) => {
+                const updateFields = {
+                    client_name: clientName || serviceToUpdate.client_name,
+                    service_type: serviceType || serviceToUpdate.service_type,
+                    price: price === undefined ? serviceToUpdate.price : price, // Allow explicit null/0
+                    tip: tip === undefined ? serviceToUpdate.tip : tip, // Allow explicit null/0
+                    service_date: serviceDate || serviceToUpdate.service_date,
+                    notes: notes === undefined ? serviceToUpdate.notes : notes, // Allow explicit null/empty
+                    cycle_id: newCycleId || serviceToUpdate.cycle_id, // Update cycle_id if new one is provided
+                    updated_at: new Date().toISOString().slice(0, 19).replace('T', ' ')
+                };
+
+                const fields = [];
+                const values = [];
+                for (const [key, value] of Object.entries(updateFields)) {
+                    if (value !== undefined) { // Only include fields that are being set
+                        fields.push(`${key} = ?`);
+                        values.push(value);
+                    }
+                }
+                values.push(id); // For WHERE id = ?
+
+                if (fields.length === 0) {
+                    // If nothing to update, just fetch and return current service
+                    return db.get(`
+                        SELECT s.*, c.start_date as cycle_start_date, c.end_date as cycle_end_date
+                        FROM services s
+                        JOIN cycles c ON s.cycle_id = c.id
+                        WHERE s.id = ? AND s.user_id = ?
+                    `, [id, userId], (err, updatedService) => {
+                        if (err) return res.status(500).json({ error: `Error fetching service: ${err.message}` });
+                        if (!updatedService) return res.status(404).json({ error: "Service not found after attempted update." });
+                        return res.json({ success: true, service: updatedService });
+                    });
+                }
+
+                const sql = `UPDATE services SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`;
+                
+                db.run(sql, [...values, userId], function (err) {
                     if (err) {
-                        res.status(500).json({ error: err.message });
+                        res.status(500).json({ error: `Error updating service: ${err.message}` });
+                        return;
+                    }
+                    if (this.changes === 0) {
+                        res.status(404).json({ error: "Service not found or not authorized to update." });
                         return;
                     }
 
-                    if (!service) {
-                        res.status(404).json({ error: "Service not found" });
-                        return;
-                    }
+                    // Fetch the updated service to return it, joining with cycle for dates
+                    db.get(`
+                        SELECT s.*, c.start_date as cycle_start_date, c.end_date as cycle_end_date
+                        FROM services s
+                        JOIN cycles c ON s.cycle_id = c.id
+                        WHERE s.id = ?
+                    `, [id], (err, updatedService) => {
+                        if (err) {
+                            res.status(500).json({ error: `Error fetching updated service: ${err.message}` });
+                            return;
+                        }
+                        res.json({ success: true, service: updatedService });
+                    });
+                });
+            };
 
-                    db.run(
-                        "UPDATE services SET client_name = ?, service_type = ?, price = ?, tip = ?, cycle_start_date = ?, cycle_end_date = ?, service_date = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                        [
-                            clientName || service.client_name,
-                            serviceType || service.service_type,
-                            price || service.price,
-                            tip || service.tip,
-                            cycleStartDate || service.cycle_start_date,
-                            cycleEndDate || service.cycle_end_date,
-                            serviceDate || service.service_date,
-                            notes || service.notes,
-                            id,
-                        ],
-                        function (err) {
-                            if (err) {
-                                res.status(500).json({ error: err.message });
-                                return;
-                            }
+            // First, get the existing service to check ownership and get current cycle_id
+            db.get("SELECT * FROM services WHERE id = ? AND user_id = ?", [id, userId], (err, existingService) => {
+                if (err) {
+                    res.status(500).json({ error: `Error finding service: ${err.message}` });
+                    return;
+                }
+                if (!existingService) {
+                    res.status(404).json({ error: "Service not found or not authorized." });
+                    return;
+                }
 
-                            res.json({
-                                success: true,
-                                message: "Service updated successfully",
+                // If cycleStartDate and cycleEndDate are provided, find/create the new cycle
+                if (cycleStartDate && cycleEndDate) {
+                    db.get("SELECT id FROM cycles WHERE start_date = ? AND end_date = ?", 
+                        [cycleStartDate, cycleEndDate], 
+                        (err, cycle) => {
+                        if (err) {
+                            res.status(500).json({ error: `Error finding new cycle: ${err.message}` });
+                            return;
+                        }
+                        if (cycle) {
+                            performUpdate(existingService, cycle.id);
+                        } else {
+                            db.run("INSERT INTO cycles (start_date, end_date) VALUES (?, ?)", 
+                                [cycleStartDate, cycleEndDate], 
+                                function (err) {
+                                if (err) {
+                                    res.status(500).json({ error: `Error creating new cycle: ${err.message}` });
+                                    return;
+                                }
+                                performUpdate(existingService, this.lastID);
                             });
                         }
-                    );
+                    });
+                } else {
+                    // If cycle dates are not provided, update other fields with existing cycle_id
+                    performUpdate(existingService, existingService.cycle_id);
                 }
-            );
+            });
         }
     );
 });

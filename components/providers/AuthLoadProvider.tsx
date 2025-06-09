@@ -2,12 +2,17 @@
 
 import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { AppDispatch } from '@/lib/store';
+import { TypedUseSelectorHook, useDispatch as useReduxDispatch, useSelector as useReduxSelector } from 'react-redux';
 import { refreshSession, loadFromStorage } from '@/lib/slices/authSlice';
 import type { RootState } from '@/lib/store';
 
+const useAppDispatch = () => useReduxDispatch<AppDispatch>();
+const useAppSelector: TypedUseSelectorHook<RootState> = useReduxSelector;
+
 export function AuthLoadProvider({ children }: { children: React.ReactNode }) {
-  const dispatch = useDispatch();
-  const { token, loading } = useSelector((state: RootState) => state.auth);
+  const dispatch = useAppDispatch();
+  const { token, loading } = useAppSelector((state: RootState) => state.auth);
 
   useEffect(() => {
     // Load auth state from storage on mount

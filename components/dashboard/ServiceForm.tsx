@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { X, Scissors, DollarSign, User, Calendar, FileText } from 'lucide-react';
+import { X, Scissors, DollarSign, User, Calendar, FileText, CreditCard, Building2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,20 +23,44 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useAppSelector } from '@/lib/hooks';
+import { useAppDispatch, useAppSelector } from '@/lib/hooks';
 import { useCreateServiceMutation, useUpdateServiceMutation, type Service } from '@/lib/api';
+import { selectAuth } from '@/lib/slices/authSlice';
 import { toast } from 'sonner';
 
 const serviceSchema = z.object({
   clientName: z.string().min(1, 'Client name is required'),
   serviceType: z.string().min(1, 'Service type is required'),
-  price: z.string().min(1, 'Price is required').refine((val) => !isNaN(Number(val)) && Number(val) > 0, 'Price must be a positive number'),
-  commission: z.string().optional(),
+  customServiceType: z.string().optional(),
+  paymentSource: z.string().min(1, 'Payment source is required'),
+  customPaymentSource: z.string().optional(),
+  price: z.string().min(1, 'Price is required').refine(
+    (val) => !isNaN(parseFloat(val)),
+    'Please enter a valid number'
+  ),
+  tip: z.string().optional().refine(
+    (val) => !val || !isNaN(parseFloat(val)),
+    'Please enter a valid number'
+  ),
   serviceDate: z.string().min(1, 'Service date is required'),
+  cycleStartDate: z.string(),
+  cycleEndDate: z.string(),
   notes: z.string().optional(),
 });
 
-type ServiceFormData = z.infer<typeof serviceSchema>;
+interface ServiceFormData {
+  clientName: string;
+  serviceType: string;
+  customServiceType?: string;
+  paymentSource: string;
+  customPaymentSource?: string;
+  price: string;
+  tip?: string;
+  serviceDate: string;
+  cycleStartDate: string;
+  cycleEndDate: string;
+  notes?: string;
+}
 
 interface ServiceFormProps {
   service?: Service | null;
@@ -44,6 +68,8 @@ interface ServiceFormProps {
 }
 
 export default function ServiceForm({ service, onClose }: ServiceFormProps) {
+  const dispatch = useAppDispatch();
+  const { user } = useAppSelector((state) => state.auth);
   const { currentCycle } = useAppSelector((state) => state.services);
   const [createService, { isLoading: isCreating }] = useCreateServiceMutation();
   const [updateService, { isLoading: isUpdating }] = useUpdateServiceMutation();
@@ -51,45 +77,67 @@ export default function ServiceForm({ service, onClose }: ServiceFormProps) {
   const isEditing = !!service;
   const isLoading = isCreating || isUpdating;
 
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    watch,
-    formState: { errors },
-  } = useForm<ServiceFormData>({
+  const form = useForm({
     resolver: zodResolver(serviceSchema),
     defaultValues: {
       clientName: '',
       serviceType: '',
+      customServiceType: '',
+      paymentSource: '',
+      customPaymentSource: '',
       price: '',
-      commission: '',
+      tip: '',
       serviceDate: new Date().toISOString().slice(0, 16),
+      cycleStartDate: currentCycle.startDate,
+      cycleEndDate: currentCycle.endDate,
       notes: '',
     },
+    mode: 'onChange',
   });
+
+  const { register, handleSubmit, formState: { errors }, setValue, watch } = form;
+
+  useEffect(() => {
+    if (!isEditing) {
+      setValue('cycleStartDate', currentCycle.startDate);
+      setValue('cycleEndDate', currentCycle.endDate);
+    }
+  }, [currentCycle, setValue, isEditing]);
 
   // Populate form when editing
   useEffect(() => {
     if (service) {
       setValue('clientName', service.client_name);
       setValue('serviceType', service.service_type);
+      setValue('customServiceType', service.custom_service_type || '');
+      setValue('paymentSource', service.payment_source);
+      setValue('customPaymentSource', service.custom_payment_source || '');
       setValue('price', service.price.toString());
-      setValue('commission', service.commission?.toString() || '');
+      setValue('tip', service.tip?.toString() || '');
       setValue('serviceDate', service.service_date.slice(0, 16));
       setValue('notes', service.notes || '');
+      setValue('cycleStartDate', service.cycle_start_date);
+      setValue('cycleEndDate', service.cycle_end_date);
     }
   }, [service, setValue]);
 
   const onSubmit = async (data: ServiceFormData) => {
     try {
+      if (!user?.id) {
+        throw new Error('User ID is required');
+      }
+
       const serviceData = {
+        userId: user.id,
         clientName: data.clientName,
         serviceType: data.serviceType,
+        customServiceType: data.customServiceType,
+        paymentSource: data.paymentSource,
+        customPaymentSource: data.customPaymentSource,
         price: parseFloat(data.price),
-        commission: data.commission ? parseFloat(data.commission) : undefined,
-        cycleStartDate: currentCycle.startDate,
-        cycleEndDate: currentCycle.endDate,
+        tip: data.tip ? parseFloat(data.tip) : undefined,
+        cycleStartDate: data.cycleStartDate,
+        cycleEndDate: data.cycleEndDate,
         serviceDate: data.serviceDate,
         notes: data.notes || undefined,
       };
@@ -107,24 +155,6 @@ export default function ServiceForm({ service, onClose }: ServiceFormProps) {
       toast.error(error.data?.message || `Failed to ${isEditing ? 'update' : 'create'} service`);
     }
   };
-
-  const serviceTypes = [
-    'Haircut',
-    'Hair Color',
-    'Highlights',
-    'Balayage',
-    'Blowout',
-    'Hair Styling',
-    'Hair Treatment',
-    'Keratin Treatment',
-    'Perm',
-    'Hair Extensions',
-    'Facial',
-    'Manicure',
-    'Pedicure',
-    'Eyebrow Wax',
-    'Other',
-  ];
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
@@ -158,29 +188,56 @@ export default function ServiceForm({ service, onClose }: ServiceFormProps) {
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="serviceType" className="text-sm font-medium text-gray-700 flex items-center">
-              <Scissors className="w-4 h-4 mr-2" />
-              Service Type
-            </Label>
-            <Select
-              value={watch('serviceType')}
-              onValueChange={(value) => setValue('serviceType', value)}
-            >
-              <SelectTrigger className="h-11 border-gray-200 focus:border-rose-gold focus:ring-rose-gold/20">
-                <SelectValue placeholder="Select service type" />
-              </SelectTrigger>
-              <SelectContent>
-                {serviceTypes.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {type}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.serviceType && (
-              <p className="text-sm text-red-500">{errors.serviceType.message}</p>
-            )}
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="serviceType">Service Type</Label>
+              <Select {...register('serviceType')}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select service type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="haircut">Haircut</SelectItem>
+                  <SelectItem value="shave">Shave</SelectItem>
+                  <SelectItem value="beard">Beard</SelectItem>
+                  <SelectItem value="haircut_and_shave">Haircut & Shave</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+              {watch('serviceType') === 'other' && (
+                <div className="mt-2">
+                  <Label htmlFor="customServiceType">Custom Service Type</Label>
+                  <Input {...register('customServiceType')} placeholder="Enter custom service type" />
+                  {errors.customServiceType && (
+                    <p className="mt-1 text-sm text-red-500">{errors.customServiceType.message}</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Label htmlFor="paymentSource">Payment Source</Label>
+              <Select {...register('paymentSource')}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select payment source" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="credit">Credit</SelectItem>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="cashapp">CashApp</SelectItem>
+                  <SelectItem value="zelle">Zelle</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+              {watch('paymentSource') === 'other' && (
+                <div className="mt-2">
+                  <Label htmlFor="customPaymentSource">Custom Payment Source</Label>
+                  <Input {...register('customPaymentSource')} placeholder="Enter custom payment type" />
+                  {errors.customPaymentSource && (
+                    <p className="mt-1 text-sm text-red-500">{errors.customPaymentSource.message}</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -204,19 +261,22 @@ export default function ServiceForm({ service, onClose }: ServiceFormProps) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="commission" className="text-sm font-medium text-gray-700 flex items-center">
+              <Label htmlFor="tip" className="text-sm font-medium text-gray-700 flex items-center">
                 <DollarSign className="w-4 h-4 mr-2" />
-                Commission
+                Tip
               </Label>
               <Input
-                id="commission"
+                id="tip"
                 type="number"
                 step="0.01"
                 min="0"
                 placeholder="0.00 (optional)"
                 className="h-11 border-gray-200 focus:border-rose-gold focus:ring-rose-gold/20"
-                {...register('commission')}
+                {...register('tip')}
               />
+              {errors.tip && (
+                <p className="text-sm text-red-500">{errors.tip.message}</p>
+              )}
             </div>
           </div>
 

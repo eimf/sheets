@@ -74,11 +74,11 @@ export default function CycleSelector() {
         </div>
 
         {isCurrentCycle() && (
-          <div className="mt-4 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-sm text-green-700 font-medium flex items-center">
-              <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+          <div className="mt-4 px-3 py-2 bg-green-50 border border-green-200 rounded-lg flex items-center">
+            <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+            <span className="text-sm text-green-700 font-medium">
               You're viewing the current active cycle
-            </p>
+            </span>
           </div>
         )}
       </CardContent>

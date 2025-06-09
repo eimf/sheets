@@ -2,6 +2,10 @@
 
 import { useState } from 'react';
 import { Search, Filter, Edit2, Trash2, DollarSign, User, Calendar, Plus } from 'lucide-react';
+import { useAppDispatch, useAppSelector } from '@/lib/hooks';
+import { useGetServicesByCycleQuery, useDeleteServiceMutation } from '@/lib/api';
+import { Service } from '@/lib/api';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,47 +26,40 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useAppDispatch, useAppSelector } from '@/lib/hooks';
-import { setSearchTerm, setFilterType } from '@/lib/slices/servicesSlice';
-import { useGetServicesByCycleQuery, useDeleteServiceMutation } from '@/lib/api';
-import { format, parseISO } from 'date-fns';
-import { toast } from 'sonner';
 import ServiceForm from './ServiceForm';
+import { format } from 'date-fns';
+import { setSearchTerm, setFilterType } from '@/lib/slices/servicesSlice';
+
+const formatCurrency = (amount: number): string => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(amount);
+};
 
 export default function ServicesList() {
+  // Forcing a recompile
   const dispatch = useAppDispatch();
+  const { user } = useAppSelector((state) => state.auth);
   const { currentCycle, searchTerm, filterType } = useAppSelector((state) => state.services);
-  
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [editingService, setEditingService] = useState<any>(null);
+  const [editingService, setEditingService] = useState<Service | null>(null);
   const [showServiceForm, setShowServiceForm] = useState(false);
 
-  const { data, error, isLoading } = useGetServicesByCycleQuery({
+  const { data, isLoading, error } = useGetServicesByCycleQuery({
+    userId: user?.id || 0,
     cycleStart: currentCycle.startDate,
     cycleEnd: currentCycle.endDate,
   });
 
   const [deleteService] = useDeleteServiceMutation();
 
-  const services = data?.services || [];
-
-  // Filter services based on search term and filter type
-  const filteredServices = services.filter((service) => {
-    const matchesSearch = 
-      service.client_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      service.service_type.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    if (filterType === 'all') return matchesSearch;
-    return matchesSearch && service.service_type.toLowerCase().includes(filterType.toLowerCase());
-  });
-
-  // Calculate totals
-  const totalEarnings = filteredServices.reduce((sum, service) => sum + service.price, 0);
-  const totalCommission = filteredServices.reduce((sum, service) => sum + (service.commission || 0), 0);
-
   const handleDelete = async (id: number) => {
     try {
-      await deleteService(id).unwrap();
+      if (!user?.id) {
+        throw new Error('User ID is required');
+      }
+      await deleteService({ userId: user.id, id }).unwrap();
       toast.success('Service deleted successfully');
       setDeleteId(null);
     } catch (error) {
@@ -70,16 +67,9 @@ export default function ServicesList() {
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(amount);
-  };
-
   const formatDate = (dateString: string) => {
     try {
-      return format(parseISO(dateString), 'MMM d, h:mm a');
+      return format(new Date(dateString), 'MMM d, h:mm a');
     } catch {
       return dateString;
     }
@@ -110,93 +100,154 @@ export default function ServicesList() {
     );
   }
 
+  const services = data?.services || [];
+
+  // Filter services based on search term and filter type
+  const filteredServices = services.filter((service: Service) => {
+    const matchesSearch = 
+      service.client_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      service.service_type.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesFilter = filterType === 'all' || 
+      (filterType === 'with-tips' && (service.tip ?? 0) > 0) ||
+      (filterType === 'no-tips' && (!service.tip || service.tip === 0));
+    return matchesSearch && matchesFilter;
+  });
+
+  // Calculate totals
+  const totalRevenue = filteredServices.reduce((sum: number, service: Service) => sum + service.price, 0);
+  const totalTips = filteredServices.reduce((sum: number, service: Service) => sum + (service.tip ?? 0), 0);
+
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="border-0 shadow-sm bg-gradient-to-br from-green-50 to-emerald-50">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-green-600">Total Earnings</p>
-                <p className="text-2xl font-bold text-green-700">{formatCurrency(totalEarnings)}</p>
-              </div>
-              <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-white" />
-              </div>
-            </div>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(totalRevenue)}</div>
           </CardContent>
         </Card>
-
-        <Card className="border-0 shadow-sm bg-gradient-to-br from-blue-50 to-indigo-50">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-blue-600">Commission</p>
-                <p className="text-2xl font-bold text-blue-700">{formatCurrency(totalCommission)}</p>
-              </div>
-              <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-white" />
-              </div>
-            </div>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Tips</CardTitle>
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatCurrency(totalTips)}</div>
           </CardContent>
         </Card>
-
-        <Card className="border-0 shadow-sm bg-gradient-to-br from-purple-50 to-pink-50">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-purple-600">Total Services</p>
-                <p className="text-2xl font-bold text-purple-700">{filteredServices.length}</p>
-              </div>
-              <div className="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center">
-                <User className="w-5 h-5 text-white" />
-              </div>
-            </div>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Services</CardTitle>
+            <User className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{filteredServices.length}</div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Controls */}
-      <Card className="border-0 shadow-sm">
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-            <div className="flex flex-col sm:flex-row gap-3 flex-1">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  placeholder="Search clients or services..."
-                  value={searchTerm}
-                  onChange={(e) => dispatch(setSearchTerm(e.target.value))}
-                  className="pl-10 h-10 border-gray-200 focus:border-rose-gold focus:ring-rose-gold/20"
-                />
-              </div>
-
-              <Select value={filterType} onValueChange={(value) => dispatch(setFilterType(value))}>
-                <SelectTrigger className="w-full sm:w-48 h-10 border-gray-200">
-                  <Filter className="w-4 h-4 mr-2" />
-                  <SelectValue placeholder="Filter by service" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Services</SelectItem>
-                  <SelectItem value="haircut">Haircuts</SelectItem>
-                  <SelectItem value="color">Hair Color</SelectItem>
-                  <SelectItem value="style">Styling</SelectItem>
-                  <SelectItem value="treatment">Treatments</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button
-              onClick={() => setShowServiceForm(true)}
-              className="bg-rose-gold hover:bg-rose-gold/90 text-white h-10"
+      {/* Service List */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Input
+              placeholder="Search services..."
+              value={searchTerm}
+              onChange={(e) => dispatch(setSearchTerm(e.target.value))}
+              className="max-w-sm"
+            />
+            <Select
+              value={filterType}
+              onValueChange={(value) => dispatch(setFilterType(value as 'all' | 'with-tips' | 'no-tips'))}
             >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Service
-            </Button>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by tips" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Services</SelectItem>
+                <SelectItem value="with-tips">With Tips</SelectItem>
+                <SelectItem value="no-tips">Without Tips</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        </CardContent>
-      </Card>
+          <Button onClick={() => setEditingService(null)}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Service
+          </Button>
+        </div>
+
+        <div className="rounded-md border">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b">
+                <th className="p-4 text-left">Client</th>
+                <th className="p-4 text-left">Service</th>
+                <th className="p-4 text-left">Payment Source</th>
+                <th className="p-4 text-left">Price</th>
+                <th className="p-4 text-left">Tip</th>
+                <th className="p-4 text-left">Date</th>
+                <th className="p-4 text-left">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredServices.map((service) => (
+                <tr key={service.id} className="border-b">
+                  <td className="p-4">{service.client_name}</td>
+                  <td className="p-4">{service.service_type}</td>
+                  <td className="p-4">{service.payment_source}</td>
+                  <td className="p-4">{formatCurrency(service.price)}</td>
+                  <td className="p-4">{formatCurrency(service.tip ?? 0)}</td>
+                  <td className="p-4">{formatDate(service.service_date)}</td>
+                  <td className="p-4">
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingService(service)}
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleteId(service.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteId !== null} onOpenChange={(open) => open ? setDeleteId(deleteId) : setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete Service
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this service? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => handleDelete(deleteId!)} className="bg-red-500 hover:bg-red-600">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+
 
       {/* Services List */}
       <div className="space-y-4">
@@ -237,9 +288,9 @@ export default function ServicesList() {
                       <div className="flex items-center">
                         <DollarSign className="w-4 h-4 mr-2 text-green-500" />
                         <span className="font-medium">{formatCurrency(service.price)}</span>
-                        {service.commission && (
+                        {service.tip && (
                           <span className="ml-2 text-blue-600">
-                            (Commission: {formatCurrency(service.commission)})
+                            (Tip: {formatCurrency(service.tip)})
                           </span>
                         )}
                       </div>
@@ -290,7 +341,6 @@ export default function ServicesList() {
           }}
         />
       )}
-
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>

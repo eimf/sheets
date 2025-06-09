@@ -1,66 +1,164 @@
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const cors = require("cors");
+const fs = require('fs').promises;
+const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const port = 3001; // Using a different port than Next.js
+
+// Create necessary directories
+const ensureDirectory = async (dirPath) => {
+    try {
+        await fs.access(dirPath);
+    } catch (err) {
+        await fs.mkdir(dirPath, { recursive: true });
+        console.log(`Created directory: ${dirPath}`);
+    }
+};
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-// Initialize SQLite database
-const crypto = require("crypto");
-const db = new sqlite3.Database('data/sheets.db', (err) => {
-    if (err) {
-        console.error("Error opening database:", err);
-    } else {
-        console.log("Connected to SQLite database");
-    }
-});
+// Database operations
+const createTables = (db) => {
+    return new Promise((resolve, reject) => {
+        // Users table
+        db.run(`CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            role TEXT DEFAULT 'user',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`, (err) => {
+            if (err) return reject(err);
 
-// Create tables
-const createTables = () => {
-    // Users table
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        full_name TEXT NOT NULL,
-        role TEXT DEFAULT 'user',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
+            // Sessions table for authentication
+            db.run(`CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )`, (err) => {
+                if (err) return reject(err);
 
-    // Sessions table for authentication
-    db.run(`CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        user_id INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-    )`);
-
-    // Services table
-    db.run(`CREATE TABLE IF NOT EXISTS services (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        client_name TEXT NOT NULL,
-        service_type TEXT NOT NULL,
-        price DECIMAL(10,2) NOT NULL,
-        commission DECIMAL(10,2),
-        cycle_start_date DATE NOT NULL,
-        cycle_end_date DATE NOT NULL,
-        service_date DATE,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-    )`);
+                // Services table
+                db.run(`CREATE TABLE IF NOT EXISTS services (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    client_name TEXT NOT NULL,
+                    service_type TEXT NOT NULL,
+                    price DECIMAL(10,2) NOT NULL,
+                    tip DECIMAL(10,2),
+                    commission DECIMAL(10,2),
+                    cycle_start_date DATE NOT NULL,
+                    cycle_end_date DATE NOT NULL,
+                    service_date DATE,
+                    notes TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )`, (err) => {
+                    if (err) return reject(err);
+                    resolve();
+                });
+            });
+        });
+    });
 };
 
-// Create tables when the server starts
-createTables();
+// Initialize SQLite database
+let db;
+const initializeDatabase = async () => {
+    const dataDir = path.join(__dirname, 'data');
+    await ensureDirectory(dataDir);
+    
+    db = new sqlite3.Database(path.join(dataDir, 'sheets.db'), (err) => {
+        if (err) {
+            console.error("Error opening database:", err);
+        } else {
+            console.log("Connected to SQLite database");
+            // Create tables
+            createTables(db).catch(err => {
+                console.error("Error creating tables:", err);
+            });
+        }
+    });
+};
+
+// Initialize database and start server
+const startServer = async () => {
+    try {
+        await initializeDatabase();
+        
+        // Create server instance
+        const server = app.listen(port, () => {
+            console.log(`Server running at http://localhost:${port}`);
+        });
+
+        // Error handling
+        server.on('error', (error) => {
+            console.error('Server error:', error);
+            
+            if (error.code === 'EADDRINUSE') {
+                console.error(`Port ${port} is already in use. Trying to use a different port...`);
+                // Try to find a free port
+                const findFreePort = require('find-free-port');
+                findFreePort(port + 1, port + 100, (err, freePort) => {
+                    if (err) {
+                        console.error('Could not find a free port:', err);
+                        process.exit(1);
+                    }
+                    console.log(`Using port ${freePort} instead`);
+                    // Close the old server first
+                    server.close(() => {
+                        // Create new server on the free port
+                        app.listen(freePort, () => {
+                            console.log(`Server running at http://localhost:${freePort}`);
+                        });
+                    });
+                });
+            } else {
+                process.exit(1);
+            }
+        });
+
+        // Graceful shutdown
+        process.on('SIGTERM', () => {
+            console.log('Received SIGTERM. Shutting down gracefully...');
+            server.close(() => {
+                console.log('Server closed');
+                process.exit(0);
+            });
+        });
+
+        process.on('SIGINT', () => {
+            console.log('Received SIGINT. Shutting down gracefully...');
+            server.close(() => {
+                console.log('Server closed');
+                process.exit(0);
+            });
+        });
+
+        // Handle unhandled promise rejections
+        process.on('unhandledRejection', (reason, promise) => {
+            console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+            process.exit(1);
+        });
+
+    } catch (err) {
+        console.error('Failed to start server:', err);
+        process.exit(1);
+    }
+};
+
+// Start the server
+startServer();
 
 // Auth endpoints
 app.post("/api/auth/register", (req, res) => {
@@ -89,10 +187,45 @@ app.post("/api/auth/register", (req, res) => {
                 return;
             }
 
-            res.json({
-                success: true,
-                message: "User registered successfully",
-            });
+            // Get the user ID of the newly created user
+            const userId = this.lastID;
+
+            // Create a session for the new user
+            const sessionId = crypto.randomBytes(32).toString('hex');
+            db.run(
+                "INSERT INTO sessions (id, user_id) VALUES (?, ?)",
+                [sessionId, userId],
+                function (err) {
+                    if (err) {
+                        res.status(500).json({ error: err.message });
+                        return;
+                    }
+
+                    // Get the user data to return
+                    db.get(
+                        "SELECT id, username, email, full_name FROM users WHERE id = ?",
+                        [userId],
+                        (err, user) => {
+                            if (err) {
+                                res.status(500).json({ error: err.message });
+                                return;
+                            }
+
+                            res.json({
+                                success: true,
+                                message: "User registered successfully",
+                                token: sessionId,
+                                user: {
+                                    id: user.id,
+                                    username: user.username,
+                                    email: user.email,
+                                    fullName: user.full_name
+                                }
+                            });
+                        }
+                    );
+                }
+            );
         }
     );
 });
@@ -293,7 +426,7 @@ app.post("/api/services", (req, res) => {
         clientName,
         serviceType,
         price,
-        commission,
+        tip,
         cycleStartDate,
         cycleEndDate,
         serviceDate,
@@ -332,13 +465,13 @@ app.post("/api/services", (req, res) => {
             }
 
             db.run(
-                "INSERT INTO services (user_id, client_name, service_type, price, commission, cycle_start_date, cycle_end_date, service_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO services (user_id, client_name, service_type, price, tip, cycle_start_date, cycle_end_date, service_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     session.user_id,
                     clientName,
                     serviceType,
                     price,
-                    commission || null,
+                    tip || null,
                     cycleStartDate,
                     cycleEndDate,
                     serviceDate || null,
@@ -368,7 +501,7 @@ app.put("/api/services/:id", (req, res) => {
         clientName,
         serviceType,
         price,
-        commission,
+        tip,
         cycleStartDate,
         cycleEndDate,
         serviceDate,
@@ -415,12 +548,12 @@ app.put("/api/services/:id", (req, res) => {
                     }
 
                     db.run(
-                        "UPDATE services SET client_name = ?, service_type = ?, price = ?, commission = ?, cycle_start_date = ?, cycle_end_date = ?, service_date = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        "UPDATE services SET client_name = ?, service_type = ?, price = ?, tip = ?, cycle_start_date = ?, cycle_end_date = ?, service_date = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                         [
                             clientName || service.client_name,
                             serviceType || service.service_type,
                             price || service.price,
-                            commission || service.commission,
+                            tip || service.tip,
                             cycleStartDate || service.cycle_start_date,
                             cycleEndDate || service.cycle_end_date,
                             serviceDate || service.service_date,

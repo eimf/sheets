@@ -4,8 +4,11 @@ import { salonApi } from './api';
 import authReducer from './slices/authSlice';
 import servicesReducer from './slices/servicesSlice';
 import { authMiddleware } from './middleware/authMiddleware';
+import { ThunkAction } from 'redux-thunk';
+import { AnyAction } from '@reduxjs/toolkit';
 
-export const store = configureStore({
+// Create store instance first
+const storeInstance = configureStore({
   reducer: {
     [salonApi.reducerPath]: salonApi.reducer,
     auth: authReducer,
@@ -19,7 +22,12 @@ export const store = configureStore({
     }).concat(salonApi.middleware, authMiddleware),
 });
 
-setupListeners(store.dispatch);
+setupListeners(storeInstance.dispatch);
 
-export type RootState = ReturnType<typeof store.getState>;
-export type AppDispatch = typeof store.dispatch;
+// Export types that depend on store
+export type RootState = ReturnType<typeof storeInstance.getState>;
+export type AppDispatch = typeof storeInstance.dispatch;
+export type AppThunk = ThunkAction<void, RootState, null, AnyAction>;
+
+// Export store
+export const store = storeInstance;

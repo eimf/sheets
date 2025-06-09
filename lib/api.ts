@@ -78,8 +78,11 @@ export interface Service {
   user_id: number;
   client_name: string;
   service_type: string;
+  custom_service_type?: string;
+  payment_source: string;
+  custom_payment_source?: string;
   price: number;
-  commission?: number;
+  tip?: number;
   cycle_start_date: string;
   cycle_end_date: string;
   service_date: string;
@@ -105,8 +108,11 @@ export interface ServicesResponse {
 export interface ServiceRequest {
   clientName: string;
   serviceType: string;
+  customServiceType?: string;
+  paymentSource: string;
+  customPaymentSource?: string;
   price: number;
-  commission?: number;
+  tip?: number;
   cycleStartDate: string;
   cycleEndDate: string;
   serviceDate?: string;
@@ -146,34 +152,37 @@ export const salonApi = createApi({
     }),
 
     // Service endpoints
-    getServices: builder.query<ServicesResponse, void>({
-      query: () => '/services',
+    getServices: builder.query<ServicesResponse, { userId: number }>({
+      query: ({ userId }) => `/services?userId=${userId}`,
       providesTags: ['Service'],
     }),
-    getServicesByCycle: builder.query<ServicesResponse, { cycleStart: string; cycleEnd: string }>({
-      query: ({ cycleStart, cycleEnd }) => `/services/cycle?cycleStart=${cycleStart}&cycleEnd=${cycleEnd}`,
+    getServicesByCycle: builder.query<ServicesResponse, { userId: number; cycleStart: string; cycleEnd: string }>({
+      query: ({ userId, cycleStart, cycleEnd }) => `/services/cycle?userId=${userId}&cycleStart=${cycleStart}&cycleEnd=${cycleEnd}`,
       providesTags: ['Service'],
     }),
-    createService: builder.mutation<{ success: boolean; message: string; serviceId: number }, ServiceRequest>({
-      query: (service) => ({
+    createService: builder.mutation<{ success: boolean; message: string; serviceId: number }, { userId: number } & ServiceRequest>({
+      query: ({ userId, ...service }) => ({
         url: '/services',
         method: 'POST',
-        body: service,
+        body: { ...service, userId },
       }),
       invalidatesTags: ['Service'],
     }),
-    updateService: builder.mutation<{ success: boolean; message: string }, { id: number } & Partial<ServiceRequest>>({
-      query: ({ id, ...service }) => ({
+
+    updateService: builder.mutation<{ success: boolean; message: string }, { userId: number; id: number } & Partial<ServiceRequest>>({
+      query: ({ userId, id, ...service }) => ({
         url: `/services/${id}`,
         method: 'PUT',
-        body: service,
+        body: { ...service, userId },
       }),
       invalidatesTags: ['Service'],
     }),
-    deleteService: builder.mutation<{ success: boolean; message: string }, number>({
-      query: (id) => ({
+
+    deleteService: builder.mutation<{ success: boolean; message: string }, { userId: number; id: number }>({
+      query: ({ userId, id }) => ({
         url: `/services/${id}`,
         method: 'DELETE',
+        body: { userId },
       }),
       invalidatesTags: ['Service'],
     }),
@@ -189,4 +198,4 @@ export const {
   useCreateServiceMutation,
   useUpdateServiceMutation,
   useDeleteServiceMutation,
-} = salonApi;
+} = salonApi as const;

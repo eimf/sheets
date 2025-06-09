@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction, createAsyncThunk } from '@reduxjs/toolkit';
 import type { User } from '../api';
+import type { RootState } from '../store'; // Assuming RootState is exported from store.ts in the lib directory
 
 interface AuthState {
   user: User | null;
@@ -138,4 +139,7 @@ const authSlice = createSlice({
 });
 
 export const { setCredentials, logout, loadFromStorage } = authSlice.actions;
+
+// Selector to get the auth state
+export const selectAuth = (state: RootState) => state.auth;
 export default authSlice.reducer;

@@ -6,9 +6,9 @@ const path = require('path');
 const crypto = require('crypto');
 
 const app = express();
-const port = 3001; // Using a different port than Next.js
+const port = 3001;
 
-// Create necessary directories
+// --- Utility Functions ---
 const ensureDirectory = async (dirPath) => {
     try {
         await fs.access(dirPath);
@@ -18,771 +18,412 @@ const ensureDirectory = async (dirPath) => {
     }
 };
 
+// --- Database Initialization and Schema --- 
+let db;
 const projectRootScriptsDir = path.resolve(__dirname, '../scripts');
-ensureDirectory(projectRootScriptsDir); // Ensure scripts directory exists at project root
+ensureDirectory(projectRootScriptsDir);
 
+const dataDir = path.join(__dirname, 'data');
+ensureDirectory(dataDir);
 
+db = new sqlite3.Database(path.join(dataDir, 'sheets.db'), (err) => {
+    if (err) {
+        console.error("Error opening database:", err);
+        process.exit(1);
+    } else {
+        console.log("Connected to SQLite database");
+        db.serialize(() => {
+            // Enable foreign key support
+            db.run("PRAGMA foreign_keys = ON;");
 
-// Middleware
+            // Users table
+            db.run(`CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL, -- Store hashed passwords in production
+                stylish TEXT NOT NULL,
+                role TEXT DEFAULT 'user',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )`);
+
+            // Sessions table
+            db.run(`CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )`);
+
+            // Cycles table
+            db.run(`CREATE TABLE IF NOT EXISTS cycles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                start_date DATE,
+                end_date DATE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(user_id, name) 
+            )`);
+
+            // Services table (Simplified)
+            db.run(`CREATE TABLE IF NOT EXISTS services (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                cycle_id INTEGER NOT NULL,
+                name TEXT NOT NULL, 
+                price DECIMAL(10,2) NOT NULL,
+                date TEXT NOT NULL, -- ISO date string
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (cycle_id) REFERENCES cycles (id) ON DELETE CASCADE
+            )`);
+            
+            // Drop obsolete tables if they exist
+            db.run(`DROP TABLE IF EXISTS payment_sources`);
+            db.run(`DROP TABLE IF EXISTS service_payment_sources`);
+
+            console.log("Database tables checked/created/updated.");
+        });
+    }
+});
+
+// --- Middleware --- 
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
-// Database operations
-const createTables = (db) => {
-    return new Promise((resolve, reject) => {
-        // Users table
-        db.run(`CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            stylish TEXT NOT NULL, -- Renamed from full_name, username removed
-            role TEXT DEFAULT 'user',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`, (err) => {
-            if (err) return reject(err);
-
-            // Sessions table for authentication
-            db.run(`CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                user_id INTEGER,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )`, (err) => {
-                if (err) return reject(err);
-
-                // Cycles table
-                db.run(`CREATE TABLE IF NOT EXISTS cycles (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    start_date DATE NOT NULL,
-                    end_date DATE NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(start_date, end_date) -- Assuming cycles are global and unique by date range
-                )`, (err) => {
-                    if (err) return reject(err);
-
-                    // Services table
-                    db.run(`CREATE TABLE IF NOT EXISTS services (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,     -- Made NOT NULL
-                        cycle_id INTEGER NOT NULL,    -- Added cycle_id
-                        client_name TEXT NOT NULL,
-                        service_type TEXT NOT NULL,
-                        price DECIMAL(10,2) NOT NULL,
-                        tip DECIMAL(10,2),
-                        commission DECIMAL(10,2),
-                        service_date DATE,            -- Kept service_date for the actual service event
-                        notes TEXT,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES users (id),
-                        FOREIGN KEY (cycle_id) REFERENCES cycles (id) -- Added FK to cycles
-                    )`, (err) => {
-                        if (err) return reject(err);
-                        resolve();
-                    });
-                });
-            });
-        });
-    });
-};
-
-// Initialize SQLite database
-let db;
-const initializeDatabase = async () => {
-    const dataDir = path.join(__dirname, 'data');
-    await ensureDirectory(dataDir);
-    
-    db = new sqlite3.Database(path.join(dataDir, 'sheets.db'), (err) => {
+// Authentication Middleware
+const authenticateUser = (req, res, next) => {
+    const { authorization } = req.headers;
+    if (!authorization || !authorization.startsWith('Bearer ')) {
+        return res.status(401).json({ error: "Authentication required. Token missing or malformed." });
+    }
+    const token = authorization.split(" ")[1];
+    db.get("SELECT user_id, users.role as user_role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.id = ?", [token], (err, session) => {
         if (err) {
-            console.error("Error opening database:", err);
-        } else {
-            console.log("Connected to SQLite database");
-            // Create tables
-            createTables(db).catch(err => {
-                console.error("Error creating tables:", err);
-            });
+            return res.status(500).json({ error: "Session validation error: " + err.message });
         }
+        if (!session) {
+            return res.status(401).json({ error: "Invalid or expired session." });
+        }
+        req.user = { id: session.user_id, role: session.user_role }; // Attach user id and role
+        next();
     });
 };
 
-// Initialize database and start server
-const startServer = async () => {
-    try {
-        await initializeDatabase();
-        
-        // Create server instance
-        const server = app.listen(port, () => {
-            console.log(`Server running at http://localhost:${port}`);
-        });
-
-        // Error handling
-        server.on('error', (error) => {
-            console.error('Server error:', error);
-            
-            if (error.code === 'EADDRINUSE') {
-                console.error(`Port ${port} is already in use. Trying to use a different port...`);
-                // Try to find a free port
-                const findFreePort = require('find-free-port');
-                findFreePort(port + 1, port + 100, (err, freePort) => {
-                    if (err) {
-                        console.error('Could not find a free port:', err);
-                        process.exit(1);
-                    }
-                    console.log(`Using port ${freePort} instead`);
-                    // Close the old server first
-                    server.close(() => {
-                        // Create new server on the free port
-                        app.listen(freePort, () => {
-                            console.log(`Server running at http://localhost:${freePort}`);
-                        });
-                    });
-                });
-            } else {
-                process.exit(1);
-            }
-        });
-
-        // Graceful shutdown
-        process.on('SIGTERM', () => {
-            console.log('Received SIGTERM. Shutting down gracefully...');
-            server.close(() => {
-                console.log('Server closed');
-                process.exit(0);
-            });
-        });
-
-        process.on('SIGINT', () => {
-            console.log('Received SIGINT. Shutting down gracefully...');
-            server.close(() => {
-                console.log('Server closed');
-                process.exit(0);
-            });
-        });
-
-        // Handle unhandled promise rejections
-        process.on('unhandledRejection', (reason, promise) => {
-            console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-            process.exit(1);
-        });
-
-    } catch (err) {
-        console.error('Failed to start server:', err);
-        process.exit(1);
-    }
-};
-
-// Start the server
-startServer();
-
-// Auth endpoints
+// --- Auth Endpoints --- 
 app.post("/api/auth/register", (req, res) => {
-    const { email, password, stylish } = req.body; // username removed, fullName changed to stylish
-
-    if (!email || !password || !stylish) { // username removed, fullName changed to stylish
-        res.status(400).json({ error: "Email, password, and stylish name are required" });
-        return;
+    const { email, password, stylish } = req.body;
+    if (!email || !password || !stylish) {
+        return res.status(400).json({ error: "Email, password, and stylish name are required" });
     }
-
-    // Hash password (in production, use bcrypt)
-    const hashedPassword = password; // In production, use bcrypt.hashSync()
-
-    db.run(
-        "INSERT INTO users (email, password, stylish) VALUES (?, ?, ?)", // username removed, full_name changed to stylish
-        [email, hashedPassword, stylish], // username removed, fullName changed to stylish
-        function (err) {
-            if (err) {
-                if (err.message.includes("UNIQUE constraint failed") && err.message.includes("users.email")) {
-                    res.status(400).json({
-                        error: "Email already exists", // Username part removed
-                    });
-                } else {
-                    res.status(500).json({ error: err.message });
-                }
-                return;
-            }
-
-            // Get the user ID of the newly created user
-            const userId = this.lastID;
-
-            // Create a session for the new user
-            const sessionId = crypto.randomBytes(32).toString('hex');
-            db.run(
-                "INSERT INTO sessions (id, user_id) VALUES (?, ?)",
-                [sessionId, userId],
-                function (err) {
-                    if (err) {
-                        res.status(500).json({ error: err.message });
-                        return;
-                    }
-
-                    // Get the user data to return
-                    db.get(
-                        "SELECT id, email, stylish, role FROM users WHERE id = ?", // Fetched stylish and role
-                        [userId],
-                        (err, user) => {
-                            if (err) {
-                                res.status(500).json({ error: err.message });
-                                return;
-                            }
-
-                            res.json({
-                                success: true,
-                                message: "User registered successfully",
-                                token: sessionId,
-                                user: { // Ensure this matches the User type in lib/api.ts
-                                    id: user.id,
-                                    email: user.email,
-                                    stylish: user.stylish, // Use stylish
-                                    role: user.role       // Include role
-                                }
-                            });
-                        }
-                    );
-                }
-            );
+    // TODO: Add password hashing (e.g., bcrypt) before storing
+    db.run("INSERT INTO users (email, password, stylish) VALUES (?, ?, ?)", [email, password, stylish], function (err) {
+        if (err) {
+            return res.status(400).json({ error: err.message.includes("UNIQUE constraint failed") ? "Email already exists." : err.message });
         }
-    );
+        const userId = this.lastID;
+        const sessionId = crypto.randomBytes(32).toString('hex');
+        db.run("INSERT INTO sessions (id, user_id) VALUES (?, ?)", [sessionId, userId], (sessionErr) => {
+            if (sessionErr) {
+                return res.status(500).json({ error: "Failed to create session: " + sessionErr.message });
+            }
+            db.get("SELECT id, email, stylish, role FROM users WHERE id = ?", [userId], (userErr, user) => {
+                if (userErr || !user) {
+                    return res.status(500).json({ error: "Failed to retrieve user after registration: " + (userErr ? userErr.message : "User not found") });
+                }
+                res.status(201).json({ token: sessionId, user });
+            });
+        });
+    });
 });
 
 app.post("/api/auth/login", (req, res) => {
     const { email, password } = req.body;
-
     if (!email || !password) {
-        res.status(400).json({ error: "Email and password are required" });
-        return;
+        return res.status(400).json({ error: "Email and password are required" });
     }
-
-    db.get("SELECT * FROM users WHERE email = ?", [email], (err, user) => {
+    db.get("SELECT id, email, password, stylish, role FROM users WHERE email = ?", [email], (err, user) => {
         if (err) {
-            res.status(500).json({ error: err.message });
-            return;
+            return res.status(500).json({ error: err.message });
         }
-
-        if (!user) {
-            res.status(401).json({ error: "Invalid credentials" });
-            return;
+        // TODO: Use bcrypt.compare for password check in production
+        if (!user || user.password !== password) {
+            return res.status(401).json({ error: "Invalid credentials" });
         }
-
-        // In production, compare hashed passwords using bcrypt.compare()
-        if (user.password !== password) {
-            res.status(401).json({ error: "Invalid credentials" });
-            return;
-        }
-
-        // Create session
-        const sessionId = crypto.randomUUID();
-        db.run(
-            "INSERT INTO sessions (id, user_id) VALUES (?, ?)",
-            [sessionId, user.id],
-            (err) => {
-                if (err) {
-                    res.status(500).json({ error: err.message });
-                    return;
-                }
-
-                res.json({
-                    success: true,
-                    token: sessionId,
-                    user: {
-                        id: user.id,
-                        username: user.username,
-                        email: user.email,
-                        fullName: user.full_name,
-                        role: user.role,
-                    },
-                });
+        const sessionId = crypto.randomBytes(32).toString('hex');
+        db.run("INSERT INTO sessions (id, user_id) VALUES (?, ?)", [sessionId, user.id], (sessionErr) => {
+            if (sessionErr) {
+                return res.status(500).json({ error: "Failed to create session: " + sessionErr.message });
             }
-        );
+            const { password, ...userWithoutPassword } = user; // Exclude password from response
+            res.json({ token: sessionId, user: userWithoutPassword });
+        });
     });
 });
 
-app.get("/api/auth/profile", (req, res) => {
-    const { authorization } = req.headers;
+app.get("/api/auth/profile", authenticateUser, (req, res) => {
+    // req.user is attached by authenticateUser middleware
+    db.get("SELECT id, email, stylish, role FROM users WHERE id = ?", [req.user.id], (err, user) => {
+        if (err || !user) {
+            return res.status(404).json({ error: "User profile not found." });
+        }
+        res.json(user);
+    });
+});
 
-    if (!authorization) {
-        res.status(401).json({ error: "Authentication required" });
-        return;
+// --- Cycle Endpoints --- (Protected by authenticateUser)
+app.post("/api/cycles", authenticateUser, (req, res) => {
+    const { name, startDate, endDate } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: "Cycle name is required." });
+    }
+    const userId = req.user.id;
+    const sql = `INSERT INTO cycles (user_id, name, start_date, end_date) VALUES (?, ?, ?, ?)`;
+    db.run(sql, [userId, name, startDate, endDate], function (err) {
+        if (err) {
+            return res.status(400).json({ error: err.message.includes("UNIQUE constraint failed") ? "A cycle with this name already exists for this user." : err.message });
+        }
+        db.get("SELECT * FROM cycles WHERE id = ?", [this.lastID], (getErr, cycle) => {
+            if (getErr || !cycle) return res.status(500).json({ error: "Failed to retrieve created cycle." });
+            res.status(201).json(cycle);
+        });
+    });
+});
+
+app.get("/api/cycles", authenticateUser, (req, res) => {
+    const userId = req.user.id;
+    db.all("SELECT * FROM cycles WHERE user_id = ? ORDER BY start_date DESC, name ASC", [userId], (err, cycles) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(cycles || []);
+    });
+});
+
+app.get("/api/cycles/:cycleId", authenticateUser, (req, res) => {
+    const { cycleId } = req.params;
+    const userId = req.user.id;
+    db.get("SELECT * FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], (err, cycle) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!cycle) {
+            return res.status(404).json({ error: "Cycle not found or not owned by user." });
+        }
+        res.json(cycle);
+    });
+});
+
+app.put("/api/cycles/:cycleId", authenticateUser, (req, res) => {
+    const { cycleId } = req.params;
+    const userId = req.user.id;
+    const { name, startDate, endDate } = req.body;
+
+    if (!name && !startDate && !endDate) {
+        return res.status(400).json({ error: "No update fields provided (name, startDate, endDate)." });
     }
 
-    const token = authorization.split(" ")[1];
-    db.get(
-        "SELECT users.* FROM users JOIN sessions ON users.id = sessions.user_id WHERE sessions.id = ?",
-        [token],
-        (err, user) => {
-            if (err) {
-                res.status(500).json({ error: err.message });
-                return;
-            }
+    // Build query dynamically based on provided fields
+    let fieldsToUpdate = [];
+    let queryParams = [];
+    if (name !== undefined) { fieldsToUpdate.push("name = ?"); queryParams.push(name); }
+    if (startDate !== undefined) { fieldsToUpdate.push("start_date = ?"); queryParams.push(startDate); }
+    if (endDate !== undefined) { fieldsToUpdate.push("end_date = ?"); queryParams.push(endDate); }
+    
+    if (fieldsToUpdate.length === 0) {
+         return res.status(400).json({ error: "No valid update fields provided." });
+    }
 
-            if (!user) {
-                res.status(401).json({ error: "Invalid session" });
-                return;
-            }
+    queryParams.push(cycleId, userId);
 
-            res.json({
-                success: true,
-                user: {
-                    id: user.id,
-                    email: user.email,
-                    stylish: user.stylish,
-                    role: user.role,
-                },
+    const sql = `UPDATE cycles SET ${fieldsToUpdate.join(", ")} WHERE id = ? AND user_id = ?`;
+    db.run(sql, queryParams, function (err) {
+        if (err) {
+            return res.status(400).json({ error: err.message.includes("UNIQUE constraint failed") ? "A cycle with this name already exists for this user." : err.message });
+        }
+        if (this.changes === 0) {
+            return res.status(404).json({ error: "Cycle not found, not owned by user, or no changes made." });
+        }
+        db.get("SELECT * FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], (getErr, cycle) => {
+            if (getErr || !cycle) return res.status(500).json({ error: "Failed to retrieve updated cycle." });
+            res.json(cycle);
+        });
+    });
+});
+
+app.delete("/api/cycles/:cycleId", authenticateUser, (req, res) => {
+    const { cycleId } = req.params;
+    const userId = req.user.id;
+    // Foreign key ON DELETE CASCADE for services.cycle_id will handle deleting associated services
+    db.run("DELETE FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], function (err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (this.changes === 0) {
+            return res.status(404).json({ error: "Cycle not found or not owned by user." });
+        }
+        res.status(200).json({ success: true, message: "Cycle and associated services deleted successfully." });
+    });
+});
+
+// --- Service Endpoints --- (Protected by authenticateUser)
+
+// GET services for a specific cycle
+app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
+    const { cycleId } = req.params;
+    const userId = req.user.id;
+
+    // First, verify the cycle belongs to the user
+    db.get("SELECT id FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], (err, cycle) => {
+        if (err) return res.status(500).json({ error: "Error verifying cycle ownership: " + err.message });
+        if (!cycle) return res.status(404).json({ error: "Cycle not found or not owned by user." });
+
+        db.all("SELECT * FROM services WHERE cycle_id = ? AND user_id = ? ORDER BY date DESC", [cycleId, userId], (serviceErr, services) => {
+            if (serviceErr) return res.status(500).json({ error: "Error fetching services: " + serviceErr.message });
+            res.json(services || []);
+        });
+    });
+});
+
+// POST a new service to a specific cycle
+app.post("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
+    const { cycleId } = req.params;
+    const userId = req.user.id;
+    const { name, price, date } = req.body;
+
+    if (!name || price === undefined || !date) {
+        return res.status(400).json({ error: "Missing required fields: name, price, date." });
+    }
+    if (isNaN(parseFloat(price)) || !isFinite(price)) {
+        return res.status(400).json({ error: "Price must be a valid number." });
+    }
+    // Validate date format (basic ISO 8601 check)
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/.test(date) && !/^\d{4}-\d{2}-\d{2}$/.test(date)){
+         // Allow for optional Z, allow for optional milliseconds
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { // Also allow YYYY-MM-DD if time is not included by client
+             return res.status(400).json({ error: "Date must be a valid ISO 8601 string (e.g., YYYY-MM-DD or YYYY-MM-DDTHH:mm:ssZ)." });
+        }
+    }
+
+    // Verify cycle belongs to user before adding service
+    db.get("SELECT id FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], (err, cycle) => {
+        if (err) return res.status(500).json({ error: "Error verifying cycle: " + err.message });
+        if (!cycle) return res.status(404).json({ error: "Cycle not found or not owned by user. Cannot add service." });
+
+        const sql = `INSERT INTO services (user_id, cycle_id, name, price, date) VALUES (?, ?, ?, ?, ?)`;
+        db.run(sql, [userId, cycleId, name, parseFloat(price), date], function (serviceErr) {
+            if (serviceErr) return res.status(500).json({ error: "Failed to add service: " + serviceErr.message });
+            db.get("SELECT * FROM services WHERE id = ?", [this.lastID], (getErr, newService) => {
+                if (getErr || !newService) return res.status(500).json({ error: "Failed to retrieve newly added service." });
+                res.status(201).json(newService);
             });
-        }
-    );
+        });
+    });
 });
 
-// Service endpoints
-app.get("/api/services", (req, res) => {
-    const { authorization } = req.headers;
+// PUT (update) an existing service
+app.put("/api/services/:serviceId", authenticateUser, (req, res) => {
+    const { serviceId } = req.params;
+    const userId = req.user.id;
+    const { name, price, date, cycleId } = req.body; // cycleId can be changed
 
-    if (!authorization) {
-        res.status(401).json({ error: "Authentication required" });
-        return;
+    if (!name && price === undefined && !date && !cycleId) {
+        return res.status(400).json({ error: "No update fields provided (name, price, date, cycleId)." });
     }
 
-    const token = authorization.split(" ")[1];
-    db.get(
-        "SELECT user_id FROM sessions WHERE id = ?",
-        [token],
-        (err, session) => {
-            if (err) {
-                res.status(500).json({ error: err.message });
-                return;
-            }
-
-            if (!session) {
-                res.status(401).json({ error: "Invalid session" });
-                return;
-            }
-
-            db.all(
-                "SELECT * FROM services WHERE user_id = ? ORDER BY created_at DESC",
-                [session.user_id],
-                (err, services) => {
-                    if (err) {
-                        res.status(500).json({ error: err.message });
-                        return;
-                    }
-
-                    res.json({
-                        success: true,
-                        services: services.map((service) => ({
-                            ...service,
-                            cycle_start_date: service.cycle_start_date,
-                            cycle_end_date: service.cycle_end_date,
-                            service_date: service.service_date,
-                        })),
-                    });
-                }
-            );
-        }
-    );
-});
-
-app.get("/api/services/cycle", (req, res) => {
-    const { authorization } = req.headers;
-    const { cycleStartDate, cycleEndDate } = req.query; // Corrected to cycleStartDate and cycleEndDate
-
-    if (!authorization) {
-        res.status(401).json({ error: "Authentication required" });
-        return;
+    // Validate fields if provided
+    if (price !== undefined && (isNaN(parseFloat(price)) || !isFinite(price))) {
+        return res.status(400).json({ error: "Price must be a valid number." });
+    }
+    if (date !== undefined && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/.test(date) && !/^\d{4}-\d{2}-\d{2}$/.test(date)){
+        return res.status(400).json({ error: "Date must be a valid ISO 8601 string." });
     }
 
-    // Corrected check to use cycleStartDate and cycleEndDate
-    if (!cycleStartDate || !cycleEndDate) { 
-        res.status(400).json({ error: "cycleStartDate and cycleEndDate query parameters are required" }); // Updated error message for clarity
-        return;
-    }
+    // First, check if the service exists and belongs to the user
+    db.get("SELECT * FROM services WHERE id = ? AND user_id = ?", [serviceId, userId], (err, service) => {
+        if (err) return res.status(500).json({ error: "Error finding service: " + err.message });
+        if (!service) return res.status(404).json({ error: "Service not found or not owned by user." });
 
-    const token = authorization.split(" ")[1];
-    db.get(
-        "SELECT user_id FROM sessions WHERE id = ?",
-        [token],
-        (err, session) => {
-            if (err) {
-                res.status(500).json({ error: err.message });
-                return;
-            }
-
-            if (!session) {
-                res.status(401).json({ error: "Invalid session" });
-                return;
-            }
-
-            // cycleStartDate and cycleEndDate are already in scope from the top of the handler.
-            // The redundant destructuring and check for them here have been removed.
-
-            // Find the cycle_id based on cycleStartDate and cycleEndDate
-            db.get("SELECT id FROM cycles WHERE start_date = ? AND end_date = ?", 
-                [cycleStartDate, cycleEndDate], 
-                (err, cycle) => {
-                if (err) {
-                    res.status(500).json({ error: `Error finding cycle: ${err.message}` });
-                    return;
-                }
-
-                if (!cycle) {
-                    // If cycle doesn't exist, return empty services array for this period
-                    res.json({ success: true, services: [] });
-                    return;
-                }
-
-                const cycleId = cycle.id;
-                const userId = session.user_id;
-
-                // Fetch services for the given user_id and cycle_id, joining with cycles table to get cycle dates
-                db.all(
-                    `SELECT s.*, c.start_date as cycle_start_date, c.end_date as cycle_end_date
-                     FROM services s
-                     JOIN cycles c ON s.cycle_id = c.id
-                     WHERE s.user_id = ? AND s.cycle_id = ? 
-                     ORDER BY s.service_date DESC, s.created_at DESC`,
-                    [userId, cycleId],
-                    (err, services) => {
-                        if (err) {
-                            res.status(500).json({ error: `Error fetching services: ${err.message}` });
-                            return;
-                        }
-                        res.json({
-                            success: true,
-                            services: services // The mapping is no longer needed as dates are selected from join
-                        });
-                    }
-                );
+        // If cycleId is being changed, verify the new cycle belongs to the user
+        if (cycleId && cycleId !== service.cycle_id) {
+            db.get("SELECT id FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], (cycleErr, newCycle) => {
+                if (cycleErr) return res.status(500).json({ error: "Error verifying new cycle: " + cycleErr.message });
+                if (!newCycle) return res.status(400).json({ error: "New cycleId provided does not exist or does not belong to the user." });
+                performServiceUpdate(service, { name, price, date, cycleId }, res);
             });
+        } else {
+            performServiceUpdate(service, { name, price, date, cycleId: cycleId || service.cycle_id }, res);
         }
-    );
+    });
 });
 
-app.post("/api/services", (req, res) => {
-    const { authorization } = req.headers;
-    const {
-        clientName,
-        serviceType,
-        price,
-        tip,
-        cycleStartDate,
-        cycleEndDate,
-        serviceDate,
-        notes,
-    } = req.body;
+function performServiceUpdate(currentService, updates, res) {
+    const newName = updates.name !== undefined ? updates.name : currentService.name;
+    const newPrice = updates.price !== undefined ? parseFloat(updates.price) : currentService.price;
+    const newDate = updates.date !== undefined ? updates.date : currentService.date;
+    const newCycleId = updates.cycleId !== undefined ? updates.cycleId : currentService.cycle_id;
 
-    if (!authorization) {
-        res.status(401).json({ error: "Authentication required" });
-        return;
-    }
+    const sql = `UPDATE services SET name = ?, price = ?, date = ?, cycle_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`;
+    db.run(sql, [newName, newPrice, newDate, newCycleId, currentService.id, currentService.user_id], function(err) {
+        if (err) return res.status(500).json({ error: "Failed to update service: " + err.message });
+        if (this.changes === 0) return res.status(404).json({ error: "Service not found, not owned, or no effective changes made." });
+        
+        db.get("SELECT * FROM services WHERE id = ?", [currentService.id], (getErr, updatedService) => {
+            if (getErr || !updatedService) return res.status(500).json({ error: "Failed to retrieve updated service." });
+            res.json(updatedService);
+        });
+    });
+}
 
-    if (
-        !clientName ||
-        !serviceType ||
-        !price ||
-        !cycleStartDate ||
-        !cycleEndDate
-    ) {
-        res.status(400).json({ error: "Required fields are missing" });
-        return;
-    }
+// DELETE a service
+app.delete("/api/services/:serviceId", authenticateUser, (req, res) => {
+    const { serviceId } = req.params;
+    const userId = req.user.id;
 
-    const token = authorization.split(" ")[1];
-    db.get(
-        "SELECT user_id FROM sessions WHERE id = ?",
-        [token],
-        (err, session) => {
-            if (err) {
-                res.status(500).json({ error: err.message });
-                return;
-            }
+    // The 'cycleId' from frontend is for cache invalidation, not strictly needed for deletion here
+    // but good to be aware it might be sent.
 
-            if (!session) {
-                res.status(401).json({ error: "Invalid session" });
-                return;
-            }
-
-            const userId = session.user_id;
-
-            // Find or create cycle
-            db.get(
-                "SELECT id FROM cycles WHERE start_date = ? AND end_date = ?",
-                [cycleStartDate, cycleEndDate],
-                (err, cycle) => {
-                    if (err) {
-                        res.status(500).json({ error: `Error finding cycle: ${err.message}` });
-                        return;
-                    }
-
-                    let cycleId;
-                    if (cycle) {
-                        cycleId = cycle.id;
-                        insertService(userId, cycleId);
-                    } else {
-                        db.run(
-                            "INSERT INTO cycles (start_date, end_date) VALUES (?, ?)",
-                            [cycleStartDate, cycleEndDate],
-                            function (err) {
-                                if (err) {
-                                    res.status(500).json({ error: `Error creating cycle: ${err.message}` });
-                                    return;
-                                }
-                                cycleId = this.lastID;
-                                insertService(userId, cycleId);
-                            }
-                        );
-                    }
-                }
-            );
-
-            function insertService(userId, cycleId) {
-                db.run(
-                    `INSERT INTO services (
-                        user_id,
-                        cycle_id,
-                        client_name,
-                        service_type,
-                        price,
-                        tip,
-                        service_date,
-                        notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, 
-                    [
-                        userId,
-                        cycleId,
-                        clientName,
-                        serviceType,
-                        price,
-                        tip || null, // Ensure null if undefined/empty
-                        serviceDate || null, // Ensure null if undefined/empty
-                        notes || null // Ensure null if undefined/empty
-                    ],
-                    function (err) {
-                        if (err) {
-                            res.status(500).json({ error: `Error inserting service: ${err.message}` });
-                            return;
-                        }
-                        // Fetch the created service to return it, joining with cycle for dates
-                        db.get(`
-                            SELECT s.*, c.start_date as cycle_start_date, c.end_date as cycle_end_date 
-                            FROM services s
-                            JOIN cycles c ON s.cycle_id = c.id
-                            WHERE s.id = ?
-                        `, [this.lastID], (err, newService) => {
-                            if (err) {
-                                res.status(500).json({ error: `Error fetching new service: ${err.message}` });
-                                return;
-                            }
-                            res.status(201).json({ success: true, service: newService });
-                        });
-                    }
-                );
-            }
+    db.run("DELETE FROM services WHERE id = ? AND user_id = ?", [serviceId, userId], function (err) {
+        if (err) {
+            return res.status(500).json({ error: "Failed to delete service: " + err.message });
         }
-    );
+        if (this.changes === 0) {
+            return res.status(404).json({ error: "Service not found or not owned by user." });
+        }
+        res.status(200).json({ success: true, message: "Service deleted successfully." });
+    });
 });
 
-app.put("/api/services/:id", (req, res) => {
-    const { authorization } = req.headers;
-    const { id } = req.params;
-    const {
-        clientName,
-        serviceType,
-        price,
-        tip,
-        cycleStartDate,
-        cycleEndDate,
-        serviceDate,
-        notes,
-    } = req.body;
-
-    if (!authorization) {
-        res.status(401).json({ error: "Authentication required" });
-        return;
-    }
-
-    if (!id) {
-        res.status(400).json({ error: "Service ID is required" });
-        return;
-    }
-
-    const token = authorization.split(" ")[1];
-    db.get(
-        "SELECT user_id FROM sessions WHERE id = ?",
-        [token],
-        (err, session) => {
-            if (err) {
-                res.status(500).json({ error: err.message });
-                return;
-            }
-
-            if (!session) {
-                res.status(401).json({ error: "Invalid session" });
-                return;
-            }
-
-            const userId = session.user_id;
-
-            // Function to perform the actual service update
-            const performUpdate = (serviceToUpdate, newCycleId) => {
-                const updateFields = {
-                    client_name: clientName || serviceToUpdate.client_name,
-                    service_type: serviceType || serviceToUpdate.service_type,
-                    price: price === undefined ? serviceToUpdate.price : price, // Allow explicit null/0
-                    tip: tip === undefined ? serviceToUpdate.tip : tip, // Allow explicit null/0
-                    service_date: serviceDate || serviceToUpdate.service_date,
-                    notes: notes === undefined ? serviceToUpdate.notes : notes, // Allow explicit null/empty
-                    cycle_id: newCycleId || serviceToUpdate.cycle_id, // Update cycle_id if new one is provided
-                    updated_at: new Date().toISOString().slice(0, 19).replace('T', ' ')
-                };
-
-                const fields = [];
-                const values = [];
-                for (const [key, value] of Object.entries(updateFields)) {
-                    if (value !== undefined) { // Only include fields that are being set
-                        fields.push(`${key} = ?`);
-                        values.push(value);
-                    }
-                }
-                values.push(id); // For WHERE id = ?
-
-                if (fields.length === 0) {
-                    // If nothing to update, just fetch and return current service
-                    return db.get(`
-                        SELECT s.*, c.start_date as cycle_start_date, c.end_date as cycle_end_date
-                        FROM services s
-                        JOIN cycles c ON s.cycle_id = c.id
-                        WHERE s.id = ? AND s.user_id = ?
-                    `, [id, userId], (err, updatedService) => {
-                        if (err) return res.status(500).json({ error: `Error fetching service: ${err.message}` });
-                        if (!updatedService) return res.status(404).json({ error: "Service not found after attempted update." });
-                        return res.json({ success: true, service: updatedService });
-                    });
-                }
-
-                const sql = `UPDATE services SET ${fields.join(', ')} WHERE id = ? AND user_id = ?`;
-                
-                db.run(sql, [...values, userId], function (err) {
-                    if (err) {
-                        res.status(500).json({ error: `Error updating service: ${err.message}` });
-                        return;
-                    }
-                    if (this.changes === 0) {
-                        res.status(404).json({ error: "Service not found or not authorized to update." });
-                        return;
-                    }
-
-                    // Fetch the updated service to return it, joining with cycle for dates
-                    db.get(`
-                        SELECT s.*, c.start_date as cycle_start_date, c.end_date as cycle_end_date
-                        FROM services s
-                        JOIN cycles c ON s.cycle_id = c.id
-                        WHERE s.id = ?
-                    `, [id], (err, updatedService) => {
-                        if (err) {
-                            res.status(500).json({ error: `Error fetching updated service: ${err.message}` });
-                            return;
-                        }
-                        res.json({ success: true, service: updatedService });
-                    });
-                });
-            };
-
-            // First, get the existing service to check ownership and get current cycle_id
-            db.get("SELECT * FROM services WHERE id = ? AND user_id = ?", [id, userId], (err, existingService) => {
-                if (err) {
-                    res.status(500).json({ error: `Error finding service: ${err.message}` });
-                    return;
-                }
-                if (!existingService) {
-                    res.status(404).json({ error: "Service not found or not authorized." });
-                    return;
-                }
-
-                // If cycleStartDate and cycleEndDate are provided, find/create the new cycle
-                if (cycleStartDate && cycleEndDate) {
-                    db.get("SELECT id FROM cycles WHERE start_date = ? AND end_date = ?", 
-                        [cycleStartDate, cycleEndDate], 
-                        (err, cycle) => {
-                        if (err) {
-                            res.status(500).json({ error: `Error finding new cycle: ${err.message}` });
-                            return;
-                        }
-                        if (cycle) {
-                            performUpdate(existingService, cycle.id);
-                        } else {
-                            db.run("INSERT INTO cycles (start_date, end_date) VALUES (?, ?)", 
-                                [cycleStartDate, cycleEndDate], 
-                                function (err) {
-                                if (err) {
-                                    res.status(500).json({ error: `Error creating new cycle: ${err.message}` });
-                                    return;
-                                }
-                                performUpdate(existingService, this.lastID);
-                            });
-                        }
-                    });
-                } else {
-                    // If cycle dates are not provided, update other fields with existing cycle_id
-                    performUpdate(existingService, existingService.cycle_id);
-                }
-            });
-        }
-    );
-});
-
-app.delete("/api/services/:id", (req, res) => {
-    const { authorization } = req.headers;
-    const { id } = req.params;
-
-    if (!authorization) {
-        res.status(401).json({ error: "Authentication required" });
-        return;
-    }
-
-    if (!id) {
-        res.status(400).json({ error: "Service ID is required" });
-        return;
-    }
-
-    const token = authorization.split(" ")[1];
-    db.get(
-        "SELECT user_id FROM sessions WHERE id = ?",
-        [token],
-        (err, session) => {
-            if (err) {
-                res.status(500).json({ error: err.message });
-                return;
-            }
-
-            if (!session) {
-                res.status(401).json({ error: "Invalid session" });
-                return;
-            }
-
-            db.run(
-                "DELETE FROM services WHERE id = ? AND user_id = ?",
-                [id, session.user_id],
-                function (err) {
-                    if (err) {
-                        res.status(500).json({ error: err.message });
-                        return;
-                    }
-
-                    if (this.changes === 0) {
-                        res.status(404).json({ error: "Service not found" });
-                        return;
-                    }
-
-                    res.json({
-                        success: true,
-                        message: "Service deleted successfully",
-                    });
-                }
-            );
-        }
-    );
-});
-
-// Start server
+// --- Server Start --- 
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
+}).on('error', (error) => {
+    console.error('Server error:', error);
+    if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${port} is already in use.`);
+        // Consider using find-free-port or similar if you want to auto-select another port
+    } else {
+        process.exit(1);
+    }
+});
+
+// Graceful shutdown
+const gracefulShutdown = () => {
+    console.log('Received shutdown signal. Closing server...');
+    db.close((err) => {
+        if (err) console.error('Error closing database:', err.message);
+        else console.log('Database connection closed.');
+        process.exit(0);
+    });
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // Optionally, close server and exit
+    // gracefulShutdown(); 
 });

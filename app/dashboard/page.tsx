@@ -1,53 +1,58 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAppSelector } from '@/lib/hooks';
-import Header from '@/components/dashboard/Header';
-import CycleSelector from '@/components/dashboard/CycleSelector';
-import ServicesList from '@/components/dashboard/ServicesList';
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAppSelector } from "@/lib/hooks";
+import Header from "@/components/dashboard/Header";
+import { useState } from 'react';
+import ServicesList from "@/components/dashboard/ServicesList";
+import CycleManager from '@/components/dashboard/CycleManager';
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const { isAuthenticated, loading } = useAppSelector((state) => state.auth);
-  const [initialCheckDone, setInitialCheckDone] = useState(false);
+    const router = useRouter();
+    const { isAuthenticated, user, loading } = useAppSelector(
+        (state) => state.auth
+    );
+    const [currentCycleId, setCurrentCycleId] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Wait for initial check to be done before checking auth
-    if (initialCheckDone && !isAuthenticated && !loading) {
-      router.push('/login');
+    useEffect(() => {
+        if (!loading && !isAuthenticated) {
+            router.push("/login");
+        }
+    }, [isAuthenticated, loading, router]);
+
+    if (loading || !isAuthenticated) {
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <p>Loading...</p>
+            </div>
+        );
     }
-  }, [isAuthenticated, loading, router, initialCheckDone]);
 
-  // Set initial check done after first render
-  useEffect(() => {
-    setInitialCheckDone(true);
-  }, []);
+    return (
+        <div className="flex flex-col min-h-screen bg-gray-50">
+            <Header />
+            <main className="flex-1 p-4 sm:p-6 md:p-8">
+                <div className="max-w-7xl mx-auto">
+                    <div className="mb-8">
+                        <h1 className="text-3xl font-bold">
+                            Welcome, {user?.stylish}!
+                        </h1>
+                        <p className="text-gray-600">
+                            Track and manage your salon services by bi-weekly
+                            cycles
+                        </p>
+                    </div>
 
-  // Show loading state while checking auth
-  if (!initialCheckDone) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
-  }
+                    <CycleManager 
+                        currentCycleId={currentCycleId}
+                        onCycleChange={setCurrentCycleId} 
+                    />
 
-  if (!isAuthenticated) {
-    return null;
-  }
+                    {currentCycleId && <ServicesList currentCycleId={currentCycleId} />}
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-cream-50 via-white to-rose-50">
-      <Header />
-      
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="space-y-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">Service Dashboard</h1>
-            <p className="text-gray-600">Track and manage your salon services by bi-weekly cycles</p>
-          </div>
-          
-          <CycleSelector />
-          <ServicesList />
+                </div>
+            </main>
         </div>
-      </main>
-    </div>
-  );
+    );
 }

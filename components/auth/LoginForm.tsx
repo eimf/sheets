@@ -39,36 +39,19 @@ export default function LoginForm() {
   const onSubmit = async (data: LoginData) => {
     try {
       const result = await login(data).unwrap();
-      console.log('Login result:', result);
       
-      if (result.success && result.token && result.user) {
-        // Validate token format
-        if (!result.token || typeof result.token !== 'string' || result.token.length !== 36) {
-          console.error('Invalid token received from server:', result.token);
-          toast.error('Invalid token received from server');
-          return;
-        }
-
-        // Validate user data
-        if (!result.user || typeof result.user !== 'object') {
-          console.error('Invalid user data received from server:', result.user);
-          toast.error('Invalid user data received from server');
-          return;
-        }
-
-        dispatch(setCredentials({
-          user: result.user,
-          token: result.token,
-        }));
-        toast.success('Welcome back! Login successful.');
-        router.push('/dashboard');
-      } else {
-        console.error('Login failed:', result);
-        toast.error(result.message || 'Login failed');
-      }
+      // The .unwrap() call on the mutation will throw an error if the request fails.
+      // If it succeeds, we can assume `result` is the successful AuthResponse payload.
+      dispatch(setCredentials({
+        user: result.user,
+        token: result.token,
+      }));
+      toast.success('Welcome back! Login successful.');
+      router.push('/dashboard');
     } catch (error: any) {
       console.error('Login error:', error);
-      toast.error(error.data?.message || 'An error occurred during login');
+      // Use `error.data.error` to match the backend's error response structure
+      toast.error(error.data?.error || 'An error occurred during login');
     }
   };
 

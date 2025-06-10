@@ -17,19 +17,18 @@ export function AuthLoadProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Load auth state from storage on mount
     dispatch(loadFromStorage());
+    // We will refresh session after loading from storage in a separate effect
+  }, [dispatch]);
 
-    // Set up session refresh if we have a token
-    if (token) {
-      // Refresh session periodically
-      const interval = setInterval(() => {
-        dispatch(refreshSession(token));
-      }, 300000); // Refresh every 5 minutes
-
-      // Refresh on mount
+  // Separate effect to refresh session if token is present after loading from storage
+  useEffect(() => {
+    if (!token) return;
+    // Refresh on mount and set up interval
+    dispatch(refreshSession(token));
+    const interval = setInterval(() => {
       dispatch(refreshSession(token));
-
-      return () => clearInterval(interval);
-    }
+    }, 300000); // 5 minutes
+    return () => clearInterval(interval);
   }, [dispatch, token]);
 
   // Return null while loading to prevent auth checks

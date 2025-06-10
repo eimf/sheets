@@ -1,6 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { setupListeners } from '@reduxjs/toolkit/query';
-import { salonApi } from './api';
+import { apiSlice } from './api';
 import authReducer from './slices/authSlice';
 import servicesReducer from './slices/servicesSlice';
 import { authMiddleware } from './middleware/authMiddleware';
@@ -10,16 +10,16 @@ import { AnyAction } from '@reduxjs/toolkit';
 // Create store instance first
 const storeInstance = configureStore({
   reducer: {
-    [salonApi.reducerPath]: salonApi.reducer,
+    [apiSlice.reducerPath]: apiSlice.reducer,
     auth: authReducer,
     services: servicesReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       serializableCheck: {
-        ignoredActions: [salonApi.util.resetApiState.type],
+        ignoredActions: [apiSlice.util.resetApiState.type],
       },
-    }).concat(salonApi.middleware, authMiddleware),
+    }).concat(apiSlice.middleware, authMiddleware),
 });
 
 setupListeners(storeInstance.dispatch);

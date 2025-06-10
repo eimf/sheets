@@ -50,19 +50,18 @@ export default function RegisterForm() {
         password: data.password,
       }).unwrap();
       
-      if (result.success && result.token && result.user) {
-        dispatch(setCredentials({
-          user: result.user,
-          token: result.token,
-        }));
-        toast.success('Account created successfully! Welcome to Tablea de Katia.');
-        router.push('/dashboard');
-      } else {
-        toast.error(result.message || 'Registration failed');
-      }
+      // The .unwrap() call on the mutation will throw an error if the request fails.
+      // If it succeeds, we can assume `result` is the successful AuthResponse payload.
+      dispatch(setCredentials({
+        user: result.user,
+        token: result.token,
+      }));
+      toast.success('Account created successfully! Welcome to Tablea de Katia.');
+      router.push('/dashboard');
     } catch (error: any) {
       console.error('Registration error:', error);
-      toast.error(error.data?.message || 'An error occurred during registration');
+      // Use `error.data.error` to match the backend's error response structure
+      toast.error(error.data?.error || 'An error occurred during registration');
     }
   };
 

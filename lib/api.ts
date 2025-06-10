@@ -1,11 +1,73 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
-import type { RootState } from './store';
-import { logout } from './slices/authSlice';
+
+// It's good practice to define RootState in your store configuration
+// and import it here for type safety with getState.
+// Example: import type { RootState } from '../store';
+
+// --- Type Definitions ---
+
+export interface User {
+  id: string;
+  email: string;
+  stylish: string; // Reflects removal of username and rename of full_name
+}
+
+export interface AuthResponse {
+  token: string;
+  user: User;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  stylish: string;
+}
+
+export interface Cycle {
+  id: string;
+  name: string;
+  startDate?: string; // ISO date string
+  endDate?: string;   // ISO date string
+  userId: string;
+}
+
+export interface NewCycle {
+  name: string;
+  startDate?: string;
+  endDate?: string;
+  // userId is typically inferred by the backend from the authenticated user
+}
+
+export interface Service {
+  id: string;
+  name: string;
+  price: number;
+  date: string; // ISO date string
+  userId: string;
+  cycleId: string; // Services are associated with a user and a cycle
+}
+
+export interface NewService {
+  name: string;
+  price: number;
+  date: string; // ISO date string
+  // cycleId will be part of the URL path when adding a new service
+  // userId is typically inferred by the backend
+}
+
+// --- Base Query Setup ---
 
 const baseQuery = fetchBaseQuery({
-  baseUrl: process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:3001/api',
+  baseUrl: 'http://localhost:3001/api', // Absolute path to the backend API
   prepareHeaders: (headers, { getState }) => {
-    const token = (getState() as RootState).auth.token;
+    // TODO: Replace `any` with your actual `RootState` type for type safety.
+    // This assumes your auth token is stored in `state.auth.token`.
+    const token = (getState() as any).auth?.token;
     if (token) {
       headers.set('authorization', `Bearer ${token}`);
     }
@@ -13,188 +75,137 @@ const baseQuery = fetchBaseQuery({
   },
 });
 
-const baseQueryWithReauth = async (args: any, api: any, extraOptions: any) => {
-  // Try the original request
-  let result = await baseQuery(args, api, extraOptions);
+// --- API Slice Definition ---
 
-  // If we get a 401, try to refresh the session
-  if (result.error && result.error.status === 401) {
-    try {
-      // Get the current token
-      const token = (api.getState() as RootState).auth.token;
-      if (!token) {
-        throw new Error('No token found');
-      }
-
-      // Try to refresh session
-      const refreshResult = await baseQuery(
-        { url: '/auth/profile' },
-        api,
-        extraOptions
-      );
-
-      if (refreshResult.data) {
-        // If refresh was successful, retry the original query
-        result = await baseQuery(args, api, extraOptions);
-      } else {
-        // If refresh failed, clear the token and redirect to login
-        api.dispatch(logout());
-        const router = extraOptions?.router;
-        if (router) {
-          router.push('/login');
-        } else if (typeof window !== 'undefined') {
-          // Fallback to window.location if no router is available
-          window.location.href = '/login';
-        }
-      }
-    } catch (error) {
-      console.error('Session refresh error:', error);
-      // Clear token on any refresh error
-      api.dispatch(logout());
-      const router = extraOptions?.router;
-      if (router) {
-        router.push('/login');
-      } else if (typeof window !== 'undefined') {
-        // Fallback to window.location if no router is available
-        window.location.href = '/login';
-      }
-    }
-  }
-
-  return result;
-};
-
-export interface User {
-  id: number;
-  email: string;
-  stylish: string; // Renamed from fullName, username removed
-  role: string;
-  createdAt?: string;
-}
-
-export interface Service {
-  id: number;
-  user_id: number;
-  cycle_id: number; // Added cycle_id
-  client_name: string;
-  service_type: string;
-  custom_service_type?: string;
-  payment_source: string;
-  custom_payment_source?: string;
-  price: number;
-  tip?: number;
-  cycle_start_date: string; // Provided by backend join for convenience
-  cycle_end_date: string;   // Provided by backend join for convenience
-  service_date: string;
-  notes?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AuthResponse {
-  success: boolean;
-  message: string;
-  token?: string;
-  user?: User;
-  errors?: any[];
-}
-
-export interface ServicesResponse {
-  success: boolean;
-  services: Service[];
-  message?: string;
-}
-
-export interface ServiceRequest {
-  clientName: string;
-  serviceType: string;
-  customServiceType?: string;
-  paymentSource: string;
-  customPaymentSource?: string;
-  price: number;
-  tip?: number;
-  cycleStartDate: string;
-  cycleEndDate: string;
-  serviceDate?: string;
-  notes?: string;
-}
-
-export const salonApi = createApi({
-  reducerPath: 'salonApi',
-  baseQuery: baseQueryWithReauth,
-  tagTypes: ['User', 'Service'],
+export const apiSlice = createApi({
+  reducerPath: 'api',
+  baseQuery,
+  tagTypes: ['Profile', 'User', 'Cycle', 'Service'],
   endpoints: (builder) => ({
-    // Auth endpoints
-    login: builder.mutation<AuthResponse, { email: string; password: string }>({
+    // Authentication Endpoints
+    login: builder.mutation<AuthResponse, LoginRequest>({
       query: (credentials) => ({
         url: '/auth/login',
         method: 'POST',
         body: credentials,
       }),
-      invalidatesTags: ['User', 'Service'], // Added 'Service' to invalidate service cache
+      invalidatesTags: [{ type: 'Profile', id: 'CURRENT' }],
     }),
-    register: builder.mutation<AuthResponse, { 
-      email: string; 
-      password: string; 
-      stylish: string; // Renamed from fullName, username removed
-    }>({
-      query: (userData) => ({
+    register: builder.mutation<AuthResponse, RegisterRequest>({
+      query: (userInfo) => ({
         url: '/auth/register',
         method: 'POST',
-        body: userData,
+        body: userInfo,
       }),
-      invalidatesTags: ['User', 'Service'], // Added 'Service' to invalidate service cache
+      invalidatesTags: [{ type: 'Profile', id: 'CURRENT' }],
     }),
-    getProfile: builder.query<{ success: boolean; user: User }, void>({
+    getProfile: builder.query<User, void>({
       query: () => '/auth/profile',
-      providesTags: ['User'],
+      providesTags: (result) =>
+        result ? [{ type: 'Profile', id: 'CURRENT' }, { type: 'User', id: result.id }] : [{ type: 'Profile', id: 'CURRENT' }],
     }),
 
-    // Service endpoints
-    getServices: builder.query<ServicesResponse, { userId: number }>({
-      query: ({ userId }) => `/services?userId=${userId}`,
-      providesTags: ['Service'],
+    // Cycle Endpoints
+    getCycles: builder.query<Cycle[], void>({
+      query: () => '/cycles', // Assumes backend filters cycles for the authenticated user
+      providesTags: (result = []) => [
+        ...result.map(({ id }) => ({ type: 'Cycle' as const, id })),
+        { type: 'Cycle', id: 'LIST' },
+      ],
     }),
-    getServicesByCycle: builder.query<ServicesResponse, { cycleStartDate: string; cycleEndDate: string }>({ // userId removed from args as it's from session
-      query: ({ cycleStartDate, cycleEndDate }) => `/services/cycle?cycleStartDate=${cycleStartDate}&cycleEndDate=${cycleEndDate}`, // Corrected endpoint to /services/cycle
-      providesTags: ['Service'],
+    getCycleById: builder.query<Cycle, string>({
+      query: (id) => `/cycles/${id}`,
+      providesTags: (result, error, id) => [{ type: 'Cycle', id }],
     }),
-    createService: builder.mutation<{ success: boolean; service: Service }, ServiceRequest>({ // userId removed from args
-      query: (service) => ({
-        url: '/services',
+    addCycle: builder.mutation<Cycle, NewCycle>({
+      query: (newCycle) => ({
+        url: '/cycles',
         method: 'POST',
-        body: service, // userId removed from body
+        body: newCycle,
       }),
-      invalidatesTags: ['Service'],
+      invalidatesTags: [{ type: 'Cycle', id: 'LIST' }],
+    }),
+    updateCycle: builder.mutation<Cycle, Partial<Cycle> & { id: string }>({
+      query: ({ id, ...patch }) => ({
+        url: `/cycles/${id}`,
+        method: 'PUT',
+        body: patch,
+      }),
+      invalidatesTags: (result, error, { id }) => [{ type: 'Cycle', id }, { type: 'Cycle', id: 'LIST' }],
+    }),
+    deleteCycle: builder.mutation<{ success: boolean; id?: string }, string>({
+      query: (id) => ({
+        url: `/cycles/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (result, error, id) => [{ type: 'Cycle', id }, { type: 'Cycle', id: 'LIST' }],
     }),
 
-    updateService: builder.mutation<{ success: boolean; service: Service }, { id: number } & Partial<ServiceRequest>>({ // userId removed from args
-      query: ({ id, ...service }) => ({
+    // Service Endpoints (associated with Cycles)
+    getServicesForCycle: builder.query<Service[], string>({ // Argument is cycleId
+      query: (cycleId) => `/cycles/${cycleId}/services`,
+      providesTags: (result = [], error, cycleId) => [
+        ...result.map(({ id }) => ({ type: 'Service' as const, id })),
+        { type: 'Service', id: 'LIST' }, // General list tag
+        { type: 'Service', id: `CYCLE_SERVICES_${cycleId}` }, // Cycle-specific list tag
+      ],
+    }),
+    addServiceToCycle: builder.mutation<Service, { cycleId: string; serviceDetails: NewService }>({
+      query: ({ cycleId, serviceDetails }) => ({
+        url: `/cycles/${cycleId}/services`,
+        method: 'POST',
+        body: serviceDetails,
+      }),
+      invalidatesTags: (result, error, { cycleId }) => [
+        { type: 'Service', id: 'LIST' },
+        { type: 'Service', id: `CYCLE_SERVICES_${cycleId}` },
+      ],
+    }),
+    getServiceById: builder.query<Service, string>({ // Assumes service IDs are globally unique
+      query: (serviceId) => `/services/${serviceId}`,
+      providesTags: (result, error, serviceId) => [{ type: 'Service', id: serviceId }],
+    }),
+    updateService: builder.mutation<Service, Partial<Service> & { id: string }>({
+      query: ({ id, ...patch }) => ({
         url: `/services/${id}`,
         method: 'PUT',
-        body: service, // userId removed from body
+        body: patch,
       }),
-      invalidatesTags: ['Service'],
+      invalidatesTags: (result, error, { id }) =>
+        result ? [
+          { type: 'Service', id },
+          { type: 'Service', id: 'LIST' },
+          { type: 'Service', id: `CYCLE_SERVICES_${result.cycleId}` }, // Assumes result contains cycleId
+        ] : [],
     }),
-
-    deleteService: builder.mutation<{ success: boolean; message: string }, { userId: number; id: number }>({
-      query: ({ userId, id }) => ({
-        url: `/services/${id}`,
+    deleteService: builder.mutation<{ success: boolean; id?: string }, { serviceId: string; cycleId: string }>({
+      query: ({ serviceId }) => ({
+        url: `/services/${serviceId}`,
         method: 'DELETE',
-        body: { userId },
       }),
-      invalidatesTags: ['Service'],
+      // cycleId is passed in args to correctly invalidate the cache for that cycle's services
+      invalidatesTags: (result, error, { serviceId, cycleId }) => [
+        { type: 'Service', id: serviceId },
+        { type: 'Service', id: 'LIST' },
+        { type: 'Service', id: `CYCLE_SERVICES_${cycleId}` },
+      ],
     }),
   }),
 });
 
+// Export hooks for usage in UI components
 export const {
   useLoginMutation,
   useRegisterMutation,
   useGetProfileQuery,
-  useGetServicesQuery,
-  useGetServicesByCycleQuery,
-  useCreateServiceMutation,
+  useGetCyclesQuery,
+  useGetCycleByIdQuery,
+  useAddCycleMutation,
+  useUpdateCycleMutation,
+  useDeleteCycleMutation,
+  useGetServicesForCycleQuery,
+  useAddServiceToCycleMutation,
+  useGetServiceByIdQuery,
   useUpdateServiceMutation,
   useDeleteServiceMutation,
-} = salonApi;
+} = apiSlice;

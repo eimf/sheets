@@ -21,28 +21,34 @@ const initialState: AuthState = {
 // Create async thunk for session refresh
 export const refreshSession = createAsyncThunk(
   'auth/refreshSession',
-  async (token: string, { rejectWithValue }) => {
+  async (_, { dispatch, rejectWithValue }) => {
     try {
-      const response = await fetch(`${process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:3001/api'}/auth/profile`, {
-        method: 'GET',
+      const token = localStorage.getItem('token');
+      if (!token) {
+        return rejectWithValue('No token found');
+      }
+
+      const response = await fetch('/api/auth/profile', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
+      const user = await response.json();
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(user.error || 'Failed to fetch profile');
       }
 
-      const data = await response.json();
-      if (!data?.success || !data?.user) {
-        throw new Error('Invalid profile response');
+      if (user && user.id && user.stylish) {
+        dispatch(setCredentials({ user, token }));
+        return { user, token };
+      } else {
+        throw new Error('Invalid user data received from profile');
       }
-
-      return data.user;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Session refresh error:', error);
-      return rejectWithValue(error instanceof Error ? error.message : 'Failed to refresh session');
+      dispatch(logout());
+      return rejectWithValue(error.message);
     }
   }
 );
@@ -102,8 +108,8 @@ const authSlice = createSlice({
             return;
           }
           
-          // Validate token format
-          if (!token || typeof token !== 'string' || token.length !== 64) {
+          // Validate token format (accept any non-empty string)
+          if (!token || typeof token !== 'string' || token.length < 10) {
             console.error('Invalid token format:', token);
             return;
           }
@@ -127,9 +133,10 @@ const authSlice = createSlice({
         state.error = null;
       })
       .addCase(refreshSession.fulfilled, (state, action) => {
+        state.user = action.payload.user;
+        state.token = action.payload.token;
+        state.isAuthenticated = true;
         state.loading = false;
-        state.user = action.payload;
-        state.error = null;
       })
       .addCase(refreshSession.rejected, (state, action) => {
         state.loading = false;

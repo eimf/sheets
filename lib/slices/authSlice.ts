@@ -14,21 +14,28 @@ const initialState: AuthState = {
   user: null,
   token: null,
   isAuthenticated: false,
-  loading: false,
+  loading: true, // Start with loading: true to check for session
   error: null,
 };
 
 // Create async thunk for session refresh
-export const refreshSession = createAsyncThunk(
+export const refreshSession = createAsyncThunk<
+  { user: User; token: string }, // Return type
+  string, // Argument type: the token
+  { rejectValue: string } // Type for rejectWithValue payload
+>(
   'auth/refreshSession',
-  async (_, { dispatch, rejectWithValue }) => {
+  async (token, { dispatch, rejectWithValue }) => {
     try {
-      const token = localStorage.getItem('token');
+      // The token is now passed as an argument.
       if (!token) {
-        return rejectWithValue('No token found');
+        return rejectWithValue('No token provided');
       }
 
-      const response = await fetch('/api/auth/profile', {
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL
+        ? `${process.env.NEXT_PUBLIC_API_URL}/api`
+        : 'http://localhost:3001/api';
+      const response = await fetch(`${apiBaseUrl}/auth/profile`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -40,6 +47,7 @@ export const refreshSession = createAsyncThunk(
       }
 
       if (user && user.id && user.stylish) {
+        // The token passed to setCredentials should be the one we used for the request.
         dispatch(setCredentials({ user, token }));
         return { user, token };
       } else {
@@ -83,45 +91,23 @@ const authSlice = createSlice({
     },
     loadFromStorage: (state) => {
       if (typeof window !== 'undefined') {
-        console.log('Attempting to load auth from storage');
-        
         const token = localStorage.getItem('salonToken');
         const userStr = localStorage.getItem('salonUser');
-        
-        console.log('Stored token:', token);
-        console.log('Stored user:', userStr);
-        
-        if (!token) {
-          console.log('No token found in storage');
-          return;
-        }
-        
-        if (!userStr) {
-          console.log('No user data found in storage');
-          return;
-        }
-        
-        try {
-          const user = JSON.parse(userStr);
-          if (!user || typeof user !== 'object') {
-            console.error('Invalid user data format in storage');
-            return;
+        if (token && userStr) {
+          try {
+            state.user = JSON.parse(userStr);
+            state.token = token;
+            state.isAuthenticated = true;
+            // loading remains true until refreshSession completes
+          } catch (error) {
+            console.error('Error parsing stored user data:', error);
+            localStorage.removeItem('salonToken');
+            localStorage.removeItem('salonUser');
+            state.loading = false; // Stop loading, parse error
           }
-          
-          // Validate token format (accept any non-empty string)
-          if (!token || typeof token !== 'string' || token.length < 10) {
-            console.error('Invalid token format:', token);
-            return;
-          }
-
-          state.user = user;
-          state.token = token;
-          state.isAuthenticated = true;
+        } else {
+          // No token, not logged in, stop loading.
           state.loading = false;
-          state.error = null;
-          console.log('Auth loaded from storage successfully');
-        } catch (error) {
-          console.error('Error parsing stored user data:', error);
         }
       }
     },
@@ -133,14 +119,16 @@ const authSlice = createSlice({
         state.error = null;
       })
       .addCase(refreshSession.fulfilled, (state, action) => {
-        state.user = action.payload.user;
-        state.token = action.payload.token;
-        state.isAuthenticated = true;
         state.loading = false;
+        // The user and token are set by the thunk's dispatch
       })
       .addCase(refreshSession.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload as string;
+        state.error = action.payload ?? 'Failed to refresh session';
+        // Also clear user/token from state
+        state.user = null;
+        state.token = null;
+        state.isAuthenticated = false;
       });
   },
 });

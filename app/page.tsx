@@ -9,13 +9,14 @@ import { Card, CardContent } from '@/components/ui/card';
 
 export default function HomePage() {
   const router = useRouter();
-  const { isAuthenticated } = useAppSelector((state) => state.auth);
+  const { isAuthenticated, loading } = useAppSelector((state) => state.auth);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    // Wait until the initial loading is complete before redirecting
+    if (!loading && isAuthenticated) {
       router.push('/dashboard');
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, loading, router]);
 
   const features = [
     {

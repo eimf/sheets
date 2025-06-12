@@ -24,9 +24,10 @@ import {
 import { useEffect } from "react";
 
 const serviceSchema = z.object({
-    name: z.string().min(1, "Service name is required"),
-    price: z.coerce.number().min(0, "Price must be a positive number"),
-    date: z.string().min(1, "Date is required"),
+    name: z.string().min(2, 'Name must be at least 2 characters.'),
+    price: z.coerce.number().min(0, 'Price must be a positive number.'),
+    tip: z.coerce.number().min(0, 'Tip must be a positive number.').optional(),
+    date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: 'Invalid date' }),
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -63,16 +64,18 @@ export default function ServiceForm({
             if (service) {
                 reset({
                     name: service.name,
-                    price: service.price,
+                    price: service?.price || 0,
+                    tip: service?.tip || 0,
                     date: service.date
-                        ? new Date(service.date).toISOString().substring(0, 16)
+                        ? new Date(service.date).toISOString().split('T')[0]
                         : "",
                 });
             } else {
                 reset({
                     name: "",
                     price: 0,
-                    date: new Date().toISOString().substring(0, 16),
+                    tip: 0,
+                    date: new Date().toISOString().split('T')[0],
                 });
             }
         }
@@ -137,33 +140,50 @@ export default function ServiceForm({
                             </p>
                         )}
                     </div>
-                    <div>
-                        <Label htmlFor="price">Price</Label>
-                        <Input
-                            id="price"
-                            type="number"
-                            step="0.01"
-                            {...register("price")}
-                            placeholder="e.g., 50.00"
-                        />
-                        {errors.price && (
-                            <p className="text-red-500 text-sm mt-1">
-                                {errors.price.message}
-                            </p>
-                        )}
-                    </div>
-                    <div>
-                        <Label htmlFor="date">Date & Time</Label>
-                        <Input
-                            id="date"
-                            type="datetime-local"
-                            {...register("date")}
-                        />
-                        {errors.date && (
-                            <p className="text-red-500 text-sm mt-1">
-                                {errors.date.message}
-                            </p>
-                        )}
+                    <div className="grid grid-cols-3 gap-4">
+                        <div>
+                            <Label htmlFor="price">Price</Label>
+                            <Input
+                                id="price"
+                                type="number"
+                                step="0.01"
+                                {...register("price")}
+                                placeholder="e.g., 50.00"
+                            />
+                            {errors.price && (
+                                <p className="text-red-500 text-sm mt-1">
+                                    {errors.price.message}
+                                </p>
+                            )}
+                        </div>
+                        <div>
+                            <Label htmlFor="tip">Tip</Label>
+                            <Input
+                                id="tip"
+                                type="number"
+                                step="0.01"
+                                {...register("tip")}
+                                placeholder="e.g., 10.00"
+                            />
+                            {errors.tip && (
+                                <p className="text-red-500 text-sm mt-1">
+                                    {errors.tip.message}
+                                </p>
+                            )}
+                        </div>
+                        <div>
+                            <Label htmlFor="date">Date</Label>
+                            <Input
+                                id="date"
+                                type="date"
+                                {...register("date")}
+                            />
+                            {errors.date && (
+                                <p className="text-red-500 text-sm mt-1">
+                                    {errors.date.message}
+                                </p>
+                            )}
+                        </div>
                     </div>
                     <DialogFooter className="pt-4">
                         <Button

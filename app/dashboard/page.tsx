@@ -4,9 +4,9 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAppSelector } from "@/lib/hooks";
 import Header from "@/components/dashboard/Header";
-import { useState } from 'react';
+import { useState } from "react";
 import ServicesList from "@/components/dashboard/ServicesList";
-import CycleManager from '@/components/dashboard/CycleManager';
+import CycleManager from "@/components/dashboard/CycleManager";
 
 export default function DashboardPage() {
     const router = useRouter();
@@ -34,23 +34,13 @@ export default function DashboardPage() {
             <Header />
             <main className="flex-1 p-4 sm:p-6 md:p-8">
                 <div className="max-w-7xl mx-auto">
-                    <div className="mb-8">
-                        <h1 className="text-3xl font-bold">
-                            Welcome, {user?.stylish}!
-                        </h1>
-                        <p className="text-gray-600">
-                            Track and manage your salon services by bi-weekly
-                            cycles
-                        </p>
-                    </div>
-
-                    <CycleManager 
+                    <CycleManager
                         currentCycleId={currentCycleId}
-                        onCycleChange={setCurrentCycleId} 
+                        onCycleChange={setCurrentCycleId}
                     />
-
-                    {currentCycleId && <ServicesList currentCycleId={currentCycleId} />}
-
+                    {currentCycleId && (
+                        <ServicesList currentCycleId={currentCycleId} />
+                    )}
                 </div>
             </main>
         </div>

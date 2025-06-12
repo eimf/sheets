@@ -49,7 +49,8 @@ function seedDatabase() {
             user_id INTEGER NOT NULL,
             cycle_id INTEGER NOT NULL,
             name TEXT NOT NULL,
-            price DECIMAL(10,2) NOT NULL,
+            price REAL NOT NULL,
+            tip REAL DEFAULT 0,
             date TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -106,14 +107,15 @@ function seedDataForUser(userId) {
 
         // Seed services for the given user
         const servicesToSeed = [
-            { name: 'Haircut & Style', price: 65.00, date: new Date().toISOString() },
-            { name: 'Beard Trim', price: 25.00, date: new Date().toISOString() },
+            { name: 'Haircut', price: 50.00, tip: 10.00, date: '2025-06-13' },
+            { name: 'Coloring', price: 120.00, tip: 25.00, date: '2025-06-14' },
+            { name: 'Styling', price: 75.00, tip: 15.00, date: '2025-06-15' },
         ];
-        const insertServiceSql = `INSERT INTO services (user_id, cycle_id, name, price, date) VALUES (?, ?, ?, ?, ?)`;
+        const insertServiceSql = `INSERT INTO services (user_id, cycle_id, name, price, tip, date) VALUES (?, ?, ?, ?, ?, ?)`;
 
         let completed = 0;
         servicesToSeed.forEach(service => {
-            db.run(insertServiceSql, [userId, cycleId, service.name, service.price, service.date], function(err) {
+            db.run(insertServiceSql, [userId, cycleId, service.name, service.price, service.tip, service.date], (err) => {
                 if (err) {
                     console.error('Error inserting service:', err);
                 } else {

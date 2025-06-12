@@ -46,6 +46,7 @@ export interface Service {
     id: string;
     name: string;
     price: number;
+    tip?: number;
     date: string; // ISO date string
     userId: string;
     cycleId: string; // Services are associated with a user and a cycle
@@ -54,6 +55,7 @@ export interface Service {
 export interface NewService {
     name: string;
     price: number;
+    tip?: number;
     date: string; // ISO date string
     // cycleId will be part of the URL path when adding a new service
     // userId is typically inferred by the backend

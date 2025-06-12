@@ -57,13 +57,10 @@ db = new sqlite3.Database(path.join(dataDir, 'sheets.db'), (err) => {
             // Cycles table
             db.run(`CREATE TABLE IF NOT EXISTS cycles (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                name TEXT NOT NULL,
+                name TEXT UNIQUE NOT NULL,
                 start_date DATE,
                 end_date DATE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-                UNIQUE(user_id, name) 
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`);
 
             // Services table (Simplified)
@@ -180,13 +177,12 @@ app.post("/api/cycles", authenticateUser, (req, res) => {
     if (!name) {
         return res.status(400).json({ error: "Cycle name is required." });
     }
-    const userId = req.user.id;
-    const sql = `INSERT INTO cycles (user_id, name, start_date, end_date) VALUES (?, ?, ?, ?)`;
-    db.run(sql, [userId, name, startDate, endDate], function (err) {
+    const sql = `INSERT INTO cycles (name, start_date, end_date) VALUES (?, ?, ?)`;
+    db.run(sql, [name, startDate, endDate], function (err) {
         if (err) {
-            return res.status(400).json({ error: err.message.includes("UNIQUE constraint failed") ? "A cycle with this name already exists for this user." : err.message });
+            return res.status(400).json({ error: err.message.includes("UNIQUE constraint failed") ? "A cycle with this name already exists." : err.message });
         }
-        db.get("SELECT * FROM cycles WHERE id = ?", [this.lastID], (getErr, cycle) => {
+        db.get("SELECT id, name, start_date AS startDate, end_date AS endDate FROM cycles WHERE id = ?", [this.lastID], (getErr, cycle) => {
             if (getErr || !cycle) return res.status(500).json({ error: "Failed to retrieve created cycle." });
             res.status(201).json(cycle);
         });
@@ -194,8 +190,8 @@ app.post("/api/cycles", authenticateUser, (req, res) => {
 });
 
 app.get("/api/cycles", authenticateUser, (req, res) => {
-    const userId = req.user.id;
-    db.all("SELECT * FROM cycles WHERE user_id = ? ORDER BY start_date DESC, name ASC", [userId], (err, cycles) => {
+    // All authenticated users can get the full list of cycles
+    db.all("SELECT id, name, start_date AS startDate, end_date AS endDate FROM cycles ORDER BY start_date DESC, name ASC", [], (err, cycles) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
@@ -205,13 +201,12 @@ app.get("/api/cycles", authenticateUser, (req, res) => {
 
 app.get("/api/cycles/:cycleId", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
-    const userId = req.user.id;
-    db.get("SELECT * FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], (err, cycle) => {
+    db.get("SELECT id, name, start_date AS startDate, end_date AS endDate FROM cycles WHERE id = ?", [cycleId], (err, cycle) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
         if (!cycle) {
-            return res.status(404).json({ error: "Cycle not found or not owned by user." });
+            return res.status(404).json({ error: "Cycle not found." });
         }
         res.json(cycle);
     });
@@ -219,7 +214,6 @@ app.get("/api/cycles/:cycleId", authenticateUser, (req, res) => {
 
 app.put("/api/cycles/:cycleId", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
-    const userId = req.user.id;
     const { name, startDate, endDate } = req.body;
 
     if (!name && !startDate && !endDate) {
@@ -237,17 +231,17 @@ app.put("/api/cycles/:cycleId", authenticateUser, (req, res) => {
          return res.status(400).json({ error: "No valid update fields provided." });
     }
 
-    queryParams.push(cycleId, userId);
+    queryParams.push(cycleId);
 
-    const sql = `UPDATE cycles SET ${fieldsToUpdate.join(", ")} WHERE id = ? AND user_id = ?`;
+    const sql = `UPDATE cycles SET ${fieldsToUpdate.join(", ")} WHERE id = ?`;
     db.run(sql, queryParams, function (err) {
         if (err) {
-            return res.status(400).json({ error: err.message.includes("UNIQUE constraint failed") ? "A cycle with this name already exists for this user." : err.message });
+            return res.status(400).json({ error: err.message.includes("UNIQUE constraint failed") ? "A cycle with this name already exists." : err.message });
         }
         if (this.changes === 0) {
-            return res.status(404).json({ error: "Cycle not found, not owned by user, or no changes made." });
+            return res.status(404).json({ error: "Cycle not found or no changes made." });
         }
-        db.get("SELECT * FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], (getErr, cycle) => {
+        db.get("SELECT id, name, start_date AS startDate, end_date AS endDate FROM cycles WHERE id = ?", [cycleId], (getErr, cycle) => {
             if (getErr || !cycle) return res.status(500).json({ error: "Failed to retrieve updated cycle." });
             res.json(cycle);
         });
@@ -256,14 +250,13 @@ app.put("/api/cycles/:cycleId", authenticateUser, (req, res) => {
 
 app.delete("/api/cycles/:cycleId", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
-    const userId = req.user.id;
     // Foreign key ON DELETE CASCADE for services.cycle_id will handle deleting associated services
-    db.run("DELETE FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], function (err) {
+    db.run("DELETE FROM cycles WHERE id = ?", [cycleId], function (err) {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
         if (this.changes === 0) {
-            return res.status(404).json({ error: "Cycle not found or not owned by user." });
+            return res.status(404).json({ error: "Cycle not found." });
         }
         res.status(200).json({ success: true, message: "Cycle and associated services deleted successfully." });
     });
@@ -276,12 +269,13 @@ app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
     const userId = req.user.id;
 
-    // First, verify the cycle belongs to the user
-    db.get("SELECT id FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], (err, cycle) => {
-        if (err) return res.status(500).json({ error: "Error verifying cycle ownership: " + err.message });
-        if (!cycle) return res.status(404).json({ error: "Cycle not found or not owned by user." });
+    // First, verify the cycle exists
+    db.get("SELECT id FROM cycles WHERE id = ?", [cycleId], (err, cycle) => {
+        if (err) return res.status(500).json({ error: "Error verifying cycle: " + err.message });
+        if (!cycle) return res.status(404).json({ error: "Cycle not found." });
 
-        db.all("SELECT * FROM services WHERE cycle_id = ? AND user_id = ? ORDER BY date DESC", [cycleId, userId], (serviceErr, services) => {
+        // Then, get services for that cycle belonging to the authenticated user
+        db.all("SELECT id, name, price, date, cycle_id as cycleId, user_id as userId FROM services WHERE cycle_id = ? AND user_id = ? ORDER BY date DESC", [cycleId, userId], (serviceErr, services) => {
             if (serviceErr) return res.status(500).json({ error: "Error fetching services: " + serviceErr.message });
             res.json(services || []);
         });
@@ -308,15 +302,15 @@ app.post("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
         }
     }
 
-    // Verify cycle belongs to user before adding service
-    db.get("SELECT id FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], (err, cycle) => {
+    // Verify cycle exists before adding service
+    db.get("SELECT id FROM cycles WHERE id = ?", [cycleId], (err, cycle) => {
         if (err) return res.status(500).json({ error: "Error verifying cycle: " + err.message });
-        if (!cycle) return res.status(404).json({ error: "Cycle not found or not owned by user. Cannot add service." });
+        if (!cycle) return res.status(404).json({ error: "Cycle not found. Cannot add service." });
 
         const sql = `INSERT INTO services (user_id, cycle_id, name, price, date) VALUES (?, ?, ?, ?, ?)`;
         db.run(sql, [userId, cycleId, name, parseFloat(price), date], function (serviceErr) {
             if (serviceErr) return res.status(500).json({ error: "Failed to add service: " + serviceErr.message });
-            db.get("SELECT * FROM services WHERE id = ?", [this.lastID], (getErr, newService) => {
+            db.get("SELECT id, name, price, date, cycle_id as cycleId, user_id as userId FROM services WHERE id = ?", [this.lastID], (getErr, newService) => {
                 if (getErr || !newService) return res.status(500).json({ error: "Failed to retrieve newly added service." });
                 res.status(201).json(newService);
             });
@@ -347,11 +341,11 @@ app.put("/api/services/:serviceId", authenticateUser, (req, res) => {
         if (err) return res.status(500).json({ error: "Error finding service: " + err.message });
         if (!service) return res.status(404).json({ error: "Service not found or not owned by user." });
 
-        // If cycleId is being changed, verify the new cycle belongs to the user
+        // If cycleId is being changed, verify the new cycle exists
         if (cycleId && cycleId !== service.cycle_id) {
-            db.get("SELECT id FROM cycles WHERE id = ? AND user_id = ?", [cycleId, userId], (cycleErr, newCycle) => {
+            db.get("SELECT id FROM cycles WHERE id = ?", [cycleId], (cycleErr, newCycle) => {
                 if (cycleErr) return res.status(500).json({ error: "Error verifying new cycle: " + cycleErr.message });
-                if (!newCycle) return res.status(400).json({ error: "New cycleId provided does not exist or does not belong to the user." });
+                if (!newCycle) return res.status(400).json({ error: "New cycleId provided does not exist." });
                 performServiceUpdate(service, { name, price, date, cycleId }, res);
             });
         } else {
@@ -371,7 +365,7 @@ function performServiceUpdate(currentService, updates, res) {
         if (err) return res.status(500).json({ error: "Failed to update service: " + err.message });
         if (this.changes === 0) return res.status(404).json({ error: "Service not found, not owned, or no effective changes made." });
         
-        db.get("SELECT * FROM services WHERE id = ?", [currentService.id], (getErr, updatedService) => {
+        db.get("SELECT id, name, price, date, cycle_id as cycleId, user_id as userId FROM services WHERE id = ?", [currentService.id], (getErr, updatedService) => {
             if (getErr || !updatedService) return res.status(500).json({ error: "Failed to retrieve updated service." });
             res.json(updatedService);
         });

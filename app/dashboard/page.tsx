@@ -30,10 +30,10 @@ export default function DashboardPage() {
     }
 
     return (
-        <div className="flex flex-col min-h-screen bg-gray-50">
+        <div className="flex flex-col min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50">
             <Header />
-            <main className="flex-1 p-4 sm:p-6 md:p-8">
-                <div className="max-w-7xl mx-auto">
+            <main className="flex-1 px-4 sm:px-6 md:px-8 py-6">
+                <div className="max-w-6xl mx-auto space-y-6">
                     <CycleManager
                         currentCycleId={currentCycleId}
                         onCycleChange={setCurrentCycleId}

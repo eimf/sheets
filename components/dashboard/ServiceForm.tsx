@@ -25,6 +25,7 @@ import { useEffect } from "react";
 
 const serviceSchema = z.object({
     name: z.string().min(2, 'Name must be at least 2 characters.'),
+    customer: z.string().min(2, 'Customer must be at least 2 characters.').optional(),
     price: z.coerce.number().min(0, 'Price must be a positive number.'),
     tip: z.coerce.number().min(0, 'Tip must be a positive number.').optional(),
     date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: 'Invalid date' }),
@@ -64,6 +65,7 @@ export default function ServiceForm({
             if (service) {
                 reset({
                     name: service.name,
+                    customer: service.customer || '',
                     price: service?.price || 0,
                     tip: service?.tip || 0,
                     date: service.date
@@ -73,6 +75,7 @@ export default function ServiceForm({
             } else {
                 reset({
                     name: "",
+                    customer: '',
                     price: 0,
                     tip: 0,
                     date: new Date().toISOString().split('T')[0],
@@ -137,6 +140,19 @@ export default function ServiceForm({
                         {errors.name && (
                             <p className="text-red-500 text-sm mt-1">
                                 {errors.name.message}
+                            </p>
+                        )}
+                    </div>
+                    <div>
+                        <Label htmlFor="customer">Customer</Label>
+                        <Input
+                            id="customer"
+                            {...register("customer")}
+                            placeholder="e.g., John Doe"
+                        />
+                        {errors.customer && (
+                            <p className="text-red-500 text-sm mt-1">
+                                {errors.customer.message}
                             </p>
                         )}
                     </div>

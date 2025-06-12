@@ -45,6 +45,7 @@ export interface NewCycle {
 export interface Service {
     id: string;
     name: string;
+    customer?: string;
     price: number;
     tip?: number;
     date: string; // ISO date string
@@ -54,6 +55,7 @@ export interface Service {
 
 export interface NewService {
     name: string;
+    customer?: string;
     price: number;
     tip?: number;
     date: string; // ISO date string

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useGetCyclesQuery, useAddCycleMutation, Cycle } from "@/lib/api";
+import { useGetCyclesQuery, useAddCycleMutation, useGetServicesForCycleQuery, Cycle } from "@/lib/api";
 import {
     Select,
     SelectContent,
@@ -25,6 +25,11 @@ export default function CycleManager({
 }: CycleManagerProps) {
     const { data: cycles, isLoading, isError, error } = useGetCyclesQuery();
     const [addCycle, { isLoading: isAddingCycle }] = useAddCycleMutation();
+
+    // Fetch services for the selected cycle (if any)
+    const { data: servicesForCycle } = useGetServicesForCycleQuery(currentCycleId!, {
+        skip: !currentCycleId,
+    });
 
     const auth = useSelector(selectAuth);
     const isUserRole = auth.user?.role === "user";
@@ -76,8 +81,10 @@ export default function CycleManager({
     if (isUserRole) {
         // Display readonly current cycle info
         const current = cycles && cycles[0];
+        const totalPrice = servicesForCycle?.reduce((sum, s) => sum + s.price, 0) || 0;
+        const totalTip = servicesForCycle?.reduce((sum, s) => sum + (s.tip || 0), 0) || 0;
         return (
-            <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
+            <div className="bg-white dark:bg-gray-900 shadow rounded-lg p-6 border-l-4 border-indigo-500">
                 {current ? (
                     <span className="font-medium">
                         {current.startDate && current.endDate
@@ -89,12 +96,20 @@ export default function CycleManager({
                 ) : (
                     <span>No cycle available.</span>
                 )}
+
+                {/* Totals Section */}
+                {currentCycleId && (
+                    <div className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                        <span className="mr-4">Total: ${totalPrice.toFixed(2)}</span>
+                        <span>Tips: ${totalTip.toFixed(2)}</span>
+                    </div>
+                )}
             </div>
         );
     }
 
     return (
-        <div className="flex items-center space-x-4 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
+        <div className="flex items-center space-x-4 bg-white dark:bg-gray-900 shadow rounded-lg p-6 border-l-4 border-indigo-500">
             <div className="flex-grow">
                 <Select
                     value={currentCycleId || ""}

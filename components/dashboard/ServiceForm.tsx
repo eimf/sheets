@@ -22,12 +22,14 @@ import {
     NewService,
 } from "@/lib/api";
 import { useEffect } from "react";
+import { Textarea } from "@/components/ui/textarea";
 
 const serviceSchema = z.object({
     name: z.string().min(2, 'Name must be at least 2 characters.'),
     customer: z.string().min(2, 'Customer must be at least 2 characters.').optional(),
     price: z.coerce.number().min(0, 'Price must be a positive number.'),
     tip: z.coerce.number().min(0, 'Tip must be a positive number.').optional(),
+    notes: z.string().max(500, 'Notes must be under 500 characters.').optional(),
     date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: 'Invalid date' }),
 });
 
@@ -68,6 +70,7 @@ export default function ServiceForm({
                     customer: service.customer || '',
                     price: service?.price || 0,
                     tip: service?.tip || 0,
+                    notes: service?.notes || '',
                     date: service.date
                         ? new Date(service.date).toISOString().split('T')[0]
                         : "",
@@ -78,6 +81,7 @@ export default function ServiceForm({
                     customer: '',
                     price: 0,
                     tip: 0,
+                    notes: '',
                     date: new Date().toISOString().split('T')[0],
                 });
             }
@@ -153,6 +157,20 @@ export default function ServiceForm({
                         {errors.customer && (
                             <p className="text-red-500 text-sm mt-1">
                                 {errors.customer.message}
+                            </p>
+                        )}
+                    </div>
+                    <div>
+                        <Label htmlFor="notes">Notes</Label>
+                        <Textarea
+                            id="notes"
+                            {...register("notes")}
+                            placeholder="Optional notes about the service"
+                            rows={3}
+                        />
+                        {errors.notes && (
+                            <p className="text-red-500 text-sm mt-1">
+                                {errors.notes.message}
                             </p>
                         )}
                     </div>

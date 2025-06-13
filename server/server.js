@@ -71,6 +71,7 @@ db = new sqlite3.Database(path.join(dataDir, 'sheets.db'), (err) => {
                 name TEXT NOT NULL,
                 customer TEXT, 
                 notes TEXT,
+                payments TEXT,
                 price REAL NOT NULL,
                 tip REAL DEFAULT 0,
                 date TEXT NOT NULL,
@@ -92,6 +93,7 @@ db = new sqlite3.Database(path.join(dataDir, 'sheets.db'), (err) => {
                 }
                 const hasCustomer = columns.some(col => col.name === 'customer');
                 const hasNotes = columns.some(col => col.name === 'notes');
+                const hasPayments = columns.some(col => col.name === 'payments');
                 if (!hasCustomer) {
                     db.run(`ALTER TABLE services ADD COLUMN customer TEXT;`, [], (alterErr)=>{
                         if(alterErr){
@@ -107,6 +109,15 @@ db = new sqlite3.Database(path.join(dataDir, 'sheets.db'), (err) => {
                             console.error('Failed to add notes column', alterErr);
                         } else {
                             console.log('Notes column added to services table');
+                        }
+                    })
+                }
+                if (!hasPayments) {
+                    db.run(`ALTER TABLE services ADD COLUMN payments TEXT;`, [], (alterErr)=>{
+                        if(alterErr){
+                            console.error('Failed to add payments column', alterErr);
+                        } else {
+                            console.log('Payments column added to services table');
                         }
                     })
                 }
@@ -318,8 +329,15 @@ app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
         if (!cycle) return res.status(404).json({ error: "Cycle not found." });
 
         // Then, get services for that cycle belonging to the authenticated user
-        db.all("SELECT id, name, customer, notes, price, tip, date, cycle_id as cycleId, user_id as userId FROM services WHERE cycle_id = ? AND user_id = ? ORDER BY date DESC", [cycleId, userId], (serviceErr, services) => {
+        db.all("SELECT id, name, customer, notes, payments, price, tip, date, cycle_id as cycleId, user_id as userId FROM services WHERE cycle_id = ? AND user_id = ? ORDER BY date DESC", [cycleId, userId], (serviceErr, services) => {
             if (serviceErr) return res.status(500).json({ error: "Error fetching services: " + serviceErr.message });
+            services.forEach(service => {
+                if(service.payments){
+                    service.payments = JSON.parse(service.payments);
+                } else {
+                    service.payments = [];
+                }
+            });
             res.json(services || []);
         });
     });
@@ -329,7 +347,7 @@ app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
 app.post("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
     const userId = req.user.id;
-    const { name, customer, notes, price, tip, date } = req.body;
+    const { name, customer, notes, payments, price, tip, date } = req.body;
 
     if (!name || price === undefined || !date) {
         return res.status(400).json({ error: "Missing required fields: name, price, date." });
@@ -350,11 +368,19 @@ app.post("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
         if (err) return res.status(500).json({ error: "Error verifying cycle: " + err.message });
         if (!cycle) return res.status(404).json({ error: "Cycle not found. Cannot add service." });
 
-        const sql = `INSERT INTO services (user_id, cycle_id, name, customer, notes, price, tip, date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-        db.run(sql, [userId, cycleId, name, customer || null, notes || null, parseFloat(price), parseFloat(tip || 0), date], function (serviceErr) {
+        // Determine payments JSON
+        let paymentsArray = payments;
+        if (!Array.isArray(paymentsArray) || paymentsArray.length === 0) {
+            paymentsArray = [{ method: 'card', amount: parseFloat(price) }];
+        }
+        const paymentsJson = JSON.stringify(paymentsArray);
+
+        const sql = `INSERT INTO services (user_id, cycle_id, name, customer, notes, payments, price, tip, date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        db.run(sql, [userId, cycleId, name, customer || null, notes || null, paymentsJson, parseFloat(price), parseFloat(tip || 0), date], function (serviceErr) {
             if (serviceErr) return res.status(500).json({ error: "Failed to add service: " + serviceErr.message });
-            db.get("SELECT id, name, customer, notes, price, tip, date, cycle_id as cycleId, user_id as userId FROM services WHERE id = ?", [this.lastID], (getErr, newService) => {
+            db.get("SELECT id, name, customer, notes, payments, price, tip, date, cycle_id as cycleId, user_id as userId FROM services WHERE id = ?", [this.lastID], (getErr, newService) => {
                 if (getErr || !newService) return res.status(500).json({ error: "Failed to retrieve newly added service." });
+                newService.payments = newService.payments ? JSON.parse(newService.payments) : [];
                 res.status(201).json(newService);
             });
         });
@@ -365,10 +391,10 @@ app.post("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
 app.put("/api/services/:serviceId", authenticateUser, (req, res) => {
     const { serviceId } = req.params;
     const userId = req.user.id;
-    const { name, customer, notes, price, tip, date, cycleId } = req.body; // cycleId can be changed
+    const { name, customer, notes, payments, price, tip, date, cycleId } = req.body; // cycleId can be changed
 
-    if (!name && price === undefined && !date && !cycleId && !customer && !notes) {
-        return res.status(400).json({ error: "No update fields provided (name, price, date, cycleId, customer, notes)." });
+    if (!name && price === undefined && !date && !cycleId && !customer && !notes && !payments) {
+        return res.status(400).json({ error: "No update fields provided." });
     }
 
     // Validate fields if provided
@@ -380,7 +406,7 @@ app.put("/api/services/:serviceId", authenticateUser, (req, res) => {
     }
 
     // First, check if the service exists and belongs to the user
-    db.get("SELECT id, name, customer, notes, price, tip, date, cycle_id AS cycleId, user_id AS userId FROM services WHERE id = ? AND user_id = ?", [serviceId, userId], (err, service) => {
+    db.get("SELECT id, name, customer, notes, payments, price, tip, date, cycle_id AS cycleId, user_id AS userId FROM services WHERE id = ? AND user_id = ?", [serviceId, userId], (err, service) => {
         if (err) return res.status(500).json({ error: "Error finding service: " + err.message });
         if (!service) return res.status(404).json({ error: "Service not found or not owned by user." });
 
@@ -389,10 +415,10 @@ app.put("/api/services/:serviceId", authenticateUser, (req, res) => {
             db.get("SELECT id FROM cycles WHERE id = ?", [cycleId], (cycleErr, newCycle) => {
                 if (cycleErr) return res.status(500).json({ error: "Error verifying new cycle: " + cycleErr.message });
                 if (!newCycle) return res.status(400).json({ error: "New cycleId provided does not exist." });
-                performServiceUpdate(service, { name, customer, notes, price, tip, date, cycleId }, res);
+                performServiceUpdate(service, { name, customer, notes, payments, price, tip, date, cycleId }, res);
             });
         } else {
-            performServiceUpdate(service, { name, customer, notes, price, tip, date, cycleId: cycleId || service.cycleId }, res);
+            performServiceUpdate(service, { name, customer, notes, payments, price, tip, date, cycleId: cycleId || service.cycleId }, res);
         }
     });
 });
@@ -401,19 +427,23 @@ function performServiceUpdate(currentService, updates, res) {
     const newName = updates.name !== undefined ? updates.name : currentService.name;
     const newCustomer = updates.customer !== undefined ? updates.customer : currentService.customer;
     const newNotes = updates.notes !== undefined ? updates.notes : currentService.notes;
+    const newPayments = updates.payments !== undefined ? JSON.stringify(updates.payments) : currentService.payments;
     const newPrice = updates.price !== undefined ? parseFloat(updates.price) : currentService.price;
     const newTip = updates.tip !== undefined ? parseFloat(updates.tip) : currentService.tip;
     const newDate = updates.date !== undefined ? updates.date : currentService.date;
     const newCycleId = updates.cycleId !== undefined ? updates.cycleId : (currentService.cycleId || currentService.cycle_id);
 
-    const sql = `UPDATE services SET name = ?, customer = ?, notes = ?, price = ?, tip = ?, date = ?, cycle_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`;
-    const params = [newName, newCustomer, newNotes, newPrice, newTip, newDate, newCycleId, currentService.id, currentService.userId || currentService.user_id];
+    const sql = `UPDATE services SET name = ?, customer = ?, notes = ?, payments = ?, price = ?, tip = ?, date = ?, cycle_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`;
+    const params = [newName, newCustomer, newNotes, newPayments, newPrice, newTip, newDate, newCycleId, currentService.id, currentService.userId || currentService.user_id];
     db.run(sql, params, function(err) {
         if (err) return res.status(500).json({ error: "Failed to update service: " + err.message });
         if (this.changes === 0) return res.status(404).json({ error: "Service not found, not owned, or no effective changes made." });
         
-        db.get("SELECT id, name, customer, notes, price, tip, date, cycle_id as cycleId, user_id as userId FROM services WHERE id = ?", [currentService.id], (getErr, updatedService) => {
+        db.get("SELECT id, name, customer, notes, payments, price, tip, date, cycle_id as cycleId, user_id as userId FROM services WHERE id = ?", [currentService.id], (getErr, updatedService) => {
             if (getErr || !updatedService) return res.status(500).json({ error: "Failed to retrieve updated service." });
+            if(updatedService && updatedService.payments){
+                updatedService.payments = JSON.parse(updatedService.payments);
+            }
             res.json(updatedService);
         });
     });

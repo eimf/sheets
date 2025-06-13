@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, useFieldArray, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
@@ -24,13 +24,37 @@ import {
 import { useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 
+const paymentMethods = [
+    { value: "card", label: "Card" },
+    { value: "cash", label: "Cash" },
+    { value: "cashapp", label: "CashApp" },
+    { value: "zelle", label: "Zelle" },
+    { value: "other", label: "Other" },
+];
+
+const paymentDetailSchema = z.object({
+    method: z.enum(["card", "cash", "cashapp", "zelle", "other"]),
+    amount: z.coerce.number().min(0, "Amount must be positive"),
+    label: z.string().optional(),
+});
+
 const serviceSchema = z.object({
     name: z.string().min(2, 'Name must be at least 2 characters.'),
     customer: z.string().min(2, 'Customer must be at least 2 characters.').optional(),
     price: z.coerce.number().min(0, 'Price must be a positive number.'),
     tip: z.coerce.number().min(0, 'Tip must be a positive number.').optional(),
     notes: z.string().max(500, 'Notes must be under 500 characters.').optional(),
+    payments: z.array(paymentDetailSchema).nonempty().refine((arr) => {
+        const total = arr.reduce((s, p) => s + p.amount, 0);
+        return !isNaN(total);
+    }, "Invalid payments"),
     date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: 'Invalid date' }),
+}).refine((data) => {
+    const total = data.payments.reduce((s, p) => s + p.amount, 0);
+    return total === data.price;
+}, {
+    message: "Payment amounts must sum to Price",
+    path: ["payments"],
 });
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
@@ -57,9 +81,16 @@ export default function ServiceForm({
         register,
         handleSubmit,
         reset,
+        control,
         formState: { errors },
+        setValue,
     } = useForm<ServiceFormData>({
         resolver: zodResolver(serviceSchema),
+    });
+
+    const { fields, append, remove } = useFieldArray({
+        control,
+        name: "payments",
     });
 
     useEffect(() => {
@@ -71,6 +102,7 @@ export default function ServiceForm({
                     price: service?.price || 0,
                     tip: service?.tip || 0,
                     notes: service?.notes || '',
+                    payments: service.payments && service.payments.length > 0 ? service.payments : [{ method: "card", amount: service.price }] ,
                     date: service.date
                         ? new Date(service.date).toISOString().split('T')[0]
                         : "",
@@ -82,11 +114,18 @@ export default function ServiceForm({
                     price: 0,
                     tip: 0,
                     notes: '',
+                    payments: [{ method: "card", amount: 0 }],
                     date: new Date().toISOString().split('T')[0],
                 });
             }
         }
     }, [service, reset, isOpen]);
+
+    const paymentsWatch = useWatch({ control, name: "payments" });
+    useEffect(() => {
+        const total = (paymentsWatch || []).reduce((s, p) => s + (parseFloat(String(p.amount)) || 0), 0);
+        setValue("price", Number.isFinite(total) ? total : 0, { shouldValidate: false, shouldDirty: true });
+    }, [paymentsWatch, setValue]);
 
     const onSubmit = async (data: ServiceFormData) => {
         try {
@@ -135,7 +174,7 @@ export default function ServiceForm({
                     className="space-y-4 pt-4"
                 >
                     <div>
-                        <Label htmlFor="name">Service Name</Label>
+                        <Label htmlFor="name">Service</Label>
                         <Input
                             id="name"
                             {...register("name")}
@@ -176,21 +215,6 @@ export default function ServiceForm({
                     </div>
                     <div className="grid grid-cols-3 gap-4">
                         <div>
-                            <Label htmlFor="price">Price</Label>
-                            <Input
-                                id="price"
-                                type="number"
-                                step="0.01"
-                                {...register("price")}
-                                placeholder="e.g., 50.00"
-                            />
-                            {errors.price && (
-                                <p className="text-red-500 text-sm mt-1">
-                                    {errors.price.message}
-                                </p>
-                            )}
-                        </div>
-                        <div>
                             <Label htmlFor="tip">Tip</Label>
                             <Input
                                 id="tip"
@@ -218,6 +242,51 @@ export default function ServiceForm({
                                 </p>
                             )}
                         </div>
+                        <div>
+                            <Label htmlFor="price">Price</Label>
+                            <Input
+                                id="price"
+                                type="number"
+                                step="0.01"
+                                {...register("price")}
+                                disabled
+                                className="bg-gray-100 cursor-not-allowed"
+                            />
+                        </div>
+                    </div>
+                    {/* Payments Section */}
+                    <div>
+                        <Label>Payment Methods</Label>
+                        {paymentMethods.map(pm => {
+                            const idx = fields.findIndex(f=>f.method===pm.value);
+                            const checked = idx!==-1;
+                            return (
+                                <div key={pm.value} className="flex items-center space-x-2 my-1">
+                                    <input type="checkbox"
+                                        checked={checked}
+                                        onChange={e=>{
+                                            if(e.target.checked){
+                                                append({ method: pm.value as any, amount: 0, label: "" });
+                                            } else if(idx!==-1){
+                                                remove(idx);
+                                            }
+                                        }}
+                                    />
+                                    <span>{pm.label}</span>
+                                    {checked && (
+                                        <>
+                                            <Input type="number" step="0.01" className="w-24 ml-2" {...register(`payments.${idx}.amount` as const)} placeholder="0.00"/>
+                                            {pm.value === "other" && (
+                                                <Input className="ml-2" placeholder="Specify method" {...register(`payments.${idx}.label` as const)} />
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        {errors.payments && (
+                            <p className="text-red-500 text-sm mt-1">{errors.payments.message as string}</p>
+                        )}
                     </div>
                     <DialogFooter className="pt-4">
                         <Button

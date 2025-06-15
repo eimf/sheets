@@ -52,7 +52,7 @@ export default function HomePage() {
             </div>
             
             <h1 className="text-5xl sm:text-6xl font-bold text-gray-800 mb-6">
-              Tablea de <span className="text-rose-gold">Katia</span>
+              Tableau de <span className="text-rose-gold">Katia</span>
             </h1>
             
             <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
@@ -119,7 +119,7 @@ export default function HomePage() {
             Ready to streamline your salon management?
           </h2>
           <p className="text-lg text-gray-600 mb-8">
-            Join salon professionals who trust Tablea de Katia to manage their services efficiently.
+            Join salon professionals who trust Tableau de Katia to manage their services efficiently.
           </p>
           <Button
             onClick={() => router.push('/register')}

@@ -8,7 +8,7 @@ import { AuthLoadProvider } from '@/components/providers/AuthLoadProvider';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Tablea de Katia - Salon Management',
+  title: 'Tableau de Katia - Salon Management',
   description: 'Professional salon service logging and management system',
 };
 

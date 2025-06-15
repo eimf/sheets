@@ -56,7 +56,7 @@ export default function RegisterForm() {
         user: result.user,
         token: result.token,
       }));
-      toast.success('Account created successfully! Welcome to Tablea de Katia.');
+      toast.success('Account created successfully! Welcome to Tableau de Katia.');
       router.push('/dashboard');
     } catch (error: any) {
       console.error('Registration error:', error);
@@ -73,7 +73,7 @@ export default function RegisterForm() {
             <User className="w-8 h-8 text-white" />
           </div>
           <CardTitle className="text-2xl font-bold text-gray-800">
-            Join Tablea de Katia
+            Join Tableau de Katia
           </CardTitle>
           <CardDescription className="text-gray-600">
             Create your stylist account to get started

@@ -66,7 +66,7 @@ export default function LoginForm() {
             Welcome Back
           </CardTitle>
           <CardDescription className="text-gray-600">
-            Sign in to Tablea de Katia salon management
+            Sign in to Tableau de Katia salon management
           </CardDescription>
         </CardHeader>
         

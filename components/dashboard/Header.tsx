@@ -44,7 +44,7 @@ export default function Header() {
             <Scissors className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-800">Tablea de Katia</h1>
+            <h1 className="text-xl font-bold text-gray-800">Tableau de Katia</h1>
             <p className="text-sm text-gray-500">Salon Management</p>
           </div>
         </div>

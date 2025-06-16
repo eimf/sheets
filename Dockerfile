@@ -4,7 +4,13 @@ WORKDIR /app
 
 # Install dependencies based on lock-file
 COPY package*.json ./
-RUN npm ci --omit=dev
+# Install build tools for native addon compilation, install deps, then rebuild sqlite3 from source for glibc compatibility
+RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential \
+    && npm ci --omit=dev \
+    && npm rebuild sqlite3 --build-from-source \
+    && apt-get purge -y build-essential python3 \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy source and build Next.js
 COPY . .

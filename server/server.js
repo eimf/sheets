@@ -5,6 +5,13 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 
+// --- Next.js Setup ---
+const next = require('next');
+const dev = process.env.NODE_ENV !== 'production';
+// Point Next to project root
+const nextApp = next({ dev, dir: path.resolve(__dirname, '..') });
+const handle = nextApp.getRequestHandler();
+
 const app = express();
 const port = process.env.PORT || 3001;
 
@@ -392,16 +399,25 @@ app.delete("/api/services/:serviceId", authenticateUser, (req, res) => {
 });
 
 // --- Server Start --- 
-app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
-}).on('error', (error) => {
-    console.error('Server error:', error);
-    if (error.code === 'EADDRINUSE') {
-        console.error(`Port ${port} is already in use.`);
-        // Consider using find-free-port or similar if you want to auto-select another port
-    } else {
-        process.exit(1);
-    }
+nextApp.prepare().then(() => {
+    // Route all unmatched requests to Next.js
+    app.all('*', (req, res) => {
+        return handle(req, res);
+    });
+
+    app.listen(port, '0.0.0.0', () => {
+        console.log(`Server running at http://0.0.0.0:${port}`);
+    }).on('error', (error) => {
+        console.error('Server error:', error);
+        if (error.code === 'EADDRINUSE') {
+            console.error(`Port ${port} is already in use.`);
+        } else {
+            process.exit(1);
+        }
+    });
+}).catch(err => {
+    console.error('Error preparing Next.js:', err);
+    process.exit(1);
 });
 
 // Graceful shutdown

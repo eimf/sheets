@@ -1,5 +1,5 @@
 # ------------ build stage ------------
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 WORKDIR /app
 
 # Install dependencies based on lock-file
@@ -11,7 +11,7 @@ COPY . .
 RUN npm run build
 
 # ------------ runtime stage ------------
-FROM node:20-alpine
+FROM node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production
 

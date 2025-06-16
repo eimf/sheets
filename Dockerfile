@@ -1,13 +1,14 @@
 # ------------ build stage ------------
-FROM node:20-slim AS builder
+FROM --platform=linux/amd64 node:20-slim AS builder
 WORKDIR /app
 
 # Install dependencies based on lock-file
-# Ensure native modules like sqlite3 build from source
-ENV npm_config_build_from_source=true
+# Ensure native modules like sqlite3 build from source and no prebuilt binaries are downloaded
+ENV npm_config_build_from_source=true \
+    npm_config_prebuild_install=false
 COPY package*.json ./
 # Install build tools for native addon compilation, install deps, then rebuild sqlite3 from source for glibc compatibility
-RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential \
+RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential libsqlite3-dev \
     && npm ci --omit=dev \
     && npm rebuild sqlite3 --build-from-source \
     && apt-get purge -y build-essential python3 \
@@ -19,7 +20,7 @@ COPY . .
 RUN npm run build
 
 # ------------ runtime stage ------------
-FROM node:20-slim
+FROM --platform=linux/amd64 node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production
 

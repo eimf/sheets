@@ -6,9 +6,8 @@ import { z } from "zod";
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
-    DialogFooter,
     DialogHeader,
+    DialogDescription,
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -38,24 +37,45 @@ const paymentDetailSchema = z.object({
     label: z.string().optional(),
 });
 
-const serviceSchema = z.object({
-    name: z.string().min(2, 'Name must be at least 2 characters.'),
-    customer: z.string().min(2, 'Customer must be at least 2 characters.').optional(),
-    price: z.coerce.number().min(0, 'Price must be a positive number.'),
-    tip: z.coerce.number().min(0, 'Tip must be a positive number.').optional(),
-    notes: z.string().max(500, 'Notes must be under 500 characters.').optional(),
-    payments: z.array(paymentDetailSchema).nonempty().refine((arr) => {
-        const total = arr.reduce((s, p) => s + p.amount, 0);
-        return !isNaN(total);
-    }, "Invalid payments"),
-    date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: 'Invalid date' }),
-}).refine((data) => {
-    const total = data.payments.reduce((s, p) => s + p.amount, 0);
-    return total === data.price;
-}, {
-    message: "Payment amounts must sum to Price",
-    path: ["payments"],
-});
+const serviceSchema = z
+    .object({
+        name: z.string().min(2, "Name must be at least 2 characters."),
+        customer: z
+            .string()
+            .min(2, "Customer must be at least 2 characters.")
+            .optional(),
+        price: z.coerce.number().min(0, "Price must be a positive number."),
+        tip: z.coerce
+            .number()
+            .min(0, "Tip must be a positive number.")
+            .optional(),
+        notes: z
+            .string()
+            .max(500, "Notes must be under 500 characters.")
+            .optional(),
+        payments: z
+            .array(paymentDetailSchema)
+            .nonempty()
+            .refine((arr) => {
+                const total = arr.reduce((s, p) => s + p.amount, 0);
+                return !isNaN(total);
+            }, "Invalid payments"),
+        date: z
+            .string()
+            .refine((val) => !isNaN(Date.parse(val)), {
+                message: "Invalid date",
+            }),
+    })
+    .refine(
+        (data) => {
+            const total = data.payments.reduce((s, p) => s + p.amount, 0);
+            return total === data.price;
+        },
+        {
+            message: "Payment amounts must sum to Price",
+            path: ["payments"],
+        }
+    );
 
 type ServiceFormData = z.infer<typeof serviceSchema>;
 
@@ -98,24 +118,27 @@ export default function ServiceForm({
             if (service) {
                 reset({
                     name: service.name,
-                    customer: service.customer || '',
+                    customer: service.customer || "",
                     price: service?.price || 0,
                     tip: service?.tip || 0,
-                    notes: service?.notes || '',
-                    payments: service.payments && service.payments.length > 0 ? service.payments : [{ method: "card", amount: service.price }] ,
+                    notes: service?.notes || "",
+                    payments:
+                        service.payments && service.payments.length > 0
+                            ? service.payments
+                            : [{ method: "card", amount: service.price }],
                     date: service.date
-                        ? new Date(service.date).toISOString().split('T')[0]
+                        ? new Date(service.date).toISOString().split("T")[0]
                         : "",
                 });
             } else {
                 reset({
                     name: "",
-                    customer: '',
+                    customer: "",
                     price: 0,
                     tip: 0,
-                    notes: '',
+                    notes: "",
                     payments: [{ method: "card", amount: 0 }],
-                    date: new Date().toISOString().split('T')[0],
+                    date: new Date().toISOString().split("T")[0],
                 });
             }
         }
@@ -123,13 +146,19 @@ export default function ServiceForm({
 
     const paymentsWatch = useWatch({ control, name: "payments" });
     useEffect(() => {
-        const total = (paymentsWatch || []).reduce((s, p) => s + (parseFloat(String(p.amount)) || 0), 0);
-        setValue("price", Number.isFinite(total) ? total : 0, { shouldValidate: false, shouldDirty: true });
+        const total = (paymentsWatch || []).reduce(
+            (s, p) => s + (parseFloat(String(p.amount)) || 0),
+            0
+        );
+        setValue("price", Number.isFinite(total) ? total : 0, {
+            shouldValidate: false,
+            shouldDirty: true,
+        });
     }, [paymentsWatch, setValue]);
 
     const onSubmit = async (data: ServiceFormData) => {
         try {
-            const serviceDetails: Omit<NewService, 'cycleId' | 'userId'> = {
+            const serviceDetails: Omit<NewService, "cycleId" | "userId"> = {
                 ...data,
                 date: new Date(data.date).toISOString(),
             };
@@ -154,24 +183,61 @@ export default function ServiceForm({
         }
     };
 
-    if (!isOpen) return null;
+    // Handle browser back button: close dialog instead of navigating away
+    useEffect(() => {
+        if (!isOpen) return;
+        const handlePopState = () => {
+            onClose();
+        };
+        // push a dummy state so the first back closes the dialog
+        window.history.pushState({ serviceModalOpen: true }, "");
+        window.addEventListener("popstate", handlePopState);
+        return () => {
+            window.removeEventListener("popstate", handlePopState);
+            // If we are closing the modal programmatically, remove the dummy state
+            if (window.history.state && window.history.state.serviceModalOpen) {
+                window.history.back();
+            }
+        };
+    }, [isOpen, onClose]);
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
-                    <DialogTitle>
-                        {service ? "Edit Service" : "Add New Service"}
-                    </DialogTitle>
-                    <DialogDescription>
-                        {service
-                            ? "Update the details of the service."
-                            : "Add a new service to the current cycle."}
-                    </DialogDescription>
+                <DialogHeader className="sticky top-0 z-20 bg-white border-b flex flex-col gap-2 py-2 px-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <DialogTitle>
+                            {service ? "Edit Service" : "Add New Service"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {service
+                                ? "Update the details of the service."
+                                : "Add a new service to the current cycle."}
+                        </DialogDescription>
+                    </div>
+                    <div className="flex gap-2 w-full sm:w-auto mt-1">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={onClose}
+                            className="flex-1 sm:flex-none"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="submit"
+                            form="serviceForm"
+                            disabled={isAdding || isUpdating}
+                            className="flex-1 sm:flex-none"
+                        >
+                            {isAdding || isUpdating ? "Saving..." : "Save"}
+                        </Button>
+                    </div>
                 </DialogHeader>
                 <form
+                    id="serviceForm"
                     onSubmit={handleSubmit(onSubmit)}
-                    className="space-y-4 pt-4"
+                    className="space-y-4 pt-4 max-h-[70vh] overflow-y-auto px-4"
                 >
                     <div>
                         <Label htmlFor="name">Service</Label>
@@ -196,20 +262,6 @@ export default function ServiceForm({
                         {errors.customer && (
                             <p className="text-red-500 text-sm mt-1">
                                 {errors.customer.message}
-                            </p>
-                        )}
-                    </div>
-                    <div>
-                        <Label htmlFor="notes">Notes</Label>
-                        <Textarea
-                            id="notes"
-                            {...register("notes")}
-                            placeholder="Optional notes about the service"
-                            rows={3}
-                        />
-                        {errors.notes && (
-                            <p className="text-red-500 text-sm mt-1">
-                                {errors.notes.message}
                             </p>
                         )}
                     </div>
@@ -257,17 +309,27 @@ export default function ServiceForm({
                     {/* Payments Section */}
                     <div>
                         <Label>Payment Methods</Label>
-                        {paymentMethods.map(pm => {
-                            const idx = fields.findIndex(f=>f.method===pm.value);
-                            const checked = idx!==-1;
+                        {paymentMethods.map((pm) => {
+                            const idx = fields.findIndex(
+                                (f) => f.method === pm.value
+                            );
+                            const checked = idx !== -1;
                             return (
-                                <div key={pm.value} className="flex items-center space-x-2 my-1">
-                                    <input type="checkbox"
+                                <div
+                                    key={pm.value}
+                                    className="flex items-center space-x-2 my-1"
+                                >
+                                    <input
+                                        type="checkbox"
                                         checked={checked}
-                                        onChange={e=>{
-                                            if(e.target.checked){
-                                                append({ method: pm.value as any, amount: 0, label: "" });
-                                            } else if(idx!==-1){
+                                        onChange={(e) => {
+                                            if (e.target.checked) {
+                                                append({
+                                                    method: pm.value as any,
+                                                    amount: 0,
+                                                    label: "",
+                                                });
+                                            } else if (idx !== -1) {
                                                 remove(idx);
                                             }
                                         }}
@@ -275,9 +337,23 @@ export default function ServiceForm({
                                     <span>{pm.label}</span>
                                     {checked && (
                                         <>
-                                            <Input type="number" step="0.01" className="w-24 ml-2" {...register(`payments.${idx}.amount` as const)} placeholder="0.00"/>
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                className="w-24 ml-2"
+                                                {...register(
+                                                    `payments.${idx}.amount` as const
+                                                )}
+                                                placeholder="0.00"
+                                            />
                                             {pm.value === "other" && (
-                                                <Input className="ml-2" placeholder="Specify method" {...register(`payments.${idx}.label` as const)} />
+                                                <Input
+                                                    className="ml-2"
+                                                    placeholder="Specify method"
+                                                    {...register(
+                                                        `payments.${idx}.label` as const
+                                                    )}
+                                                />
                                             )}
                                         </>
                                     )}
@@ -285,23 +361,25 @@ export default function ServiceForm({
                             );
                         })}
                         {errors.payments && (
-                            <p className="text-red-500 text-sm mt-1">{errors.payments.message as string}</p>
+                            <p className="text-red-500 text-sm mt-1">
+                                {errors.payments.message as string}
+                            </p>
                         )}
                     </div>
-                    <DialogFooter className="pt-4">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={onClose}
-                        >
-                            Cancel
-                        </Button>
-                        <Button type="submit" disabled={isAdding || isUpdating}>
-                            {isAdding || isUpdating
-                                ? "Saving..."
-                                : "Save Service"}
-                        </Button>
-                    </DialogFooter>
+                    <div>
+                        <Label htmlFor="notes">Notes</Label>
+                        <Textarea
+                            id="notes"
+                            {...register("notes")}
+                            placeholder="Optional notes about the service"
+                            rows={3}
+                        />
+                        {errors.notes && (
+                            <p className="text-red-500 text-sm mt-1">
+                                {errors.notes.message}
+                            </p>
+                        )}
+                    </div>
                 </form>
             </DialogContent>
         </Dialog>

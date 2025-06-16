@@ -9,6 +9,7 @@ primary_region = "iad" # choose closest region (e.g., iad, sjc, lax, gru, etc.)
 
 [env]
   NODE_ENV = "production"
+  NEXT_PUBLIC_API_URL = "https://sheets-app.fly.dev"
 
 [[mounts]]
   source = "sheets_data"

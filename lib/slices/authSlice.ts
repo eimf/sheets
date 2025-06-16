@@ -32,9 +32,14 @@ export const refreshSession = createAsyncThunk<
         return rejectWithValue('No token provided');
       }
 
+      // --- Dynamic Base URL Resolution (keep in sync with lib/api.ts) ---
+      const isServer = typeof window === 'undefined';
+      const serverPort = process.env.PORT || 3001;
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL
         ? `${process.env.NEXT_PUBLIC_API_URL}/api`
-        : 'http://localhost:3001/api';
+        : isServer
+        ? `http://localhost:${serverPort}/api`
+        : '/api';
       const response = await fetch(`${apiBaseUrl}/auth/profile`, {
         headers: {
           Authorization: `Bearer ${token}`,

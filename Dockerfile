@@ -3,6 +3,8 @@ FROM node:20-slim AS builder
 WORKDIR /app
 
 # Install dependencies based on lock-file
+# Ensure native modules like sqlite3 build from source
+ENV npm_config_build_from_source=true
 COPY package*.json ./
 # Install build tools for native addon compilation, install deps, then rebuild sqlite3 from source for glibc compatibility
 RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential \

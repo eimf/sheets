@@ -1,0 +1,22 @@
+# Fly.io configuration generated for sheets app
+# Replace "sheets-app" with a unique name if already taken
+app = "sheets-app"
+
+primary_region = "iad" # choose closest region (e.g., iad, sjc, lax, gru, etc.)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+
+[[mounts]]
+  source = "sheets_data"
+  destination = "/app/server/data"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1

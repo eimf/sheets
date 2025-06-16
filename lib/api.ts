@@ -45,7 +45,11 @@ export interface NewCycle {
 export interface Service {
     id: string;
     name: string;
+    customer?: string;
+    notes?: string;
+    payments?: PaymentDetail[];
     price: number;
+    tip?: number;
     date: string; // ISO date string
     userId: string;
     cycleId: string; // Services are associated with a user and a cycle
@@ -53,10 +57,20 @@ export interface Service {
 
 export interface NewService {
     name: string;
+    customer?: string;
+    notes?: string;
+    payments?: PaymentDetail[];
     price: number;
+    tip?: number;
     date: string; // ISO date string
     // cycleId will be part of the URL path when adding a new service
     // userId is typically inferred by the backend
+}
+
+export interface PaymentDetail {
+    method: "card" | "cash" | "cashapp" | "zelle" | "other";
+    amount: number;
+    label?: string; // only for other
 }
 
 // --- Base Query Setup ---

@@ -66,12 +66,14 @@ export default function ServicesList({ currentCycleId }: ServicesListProps) {
       </div>
 
       {services && services.length > 0 ? (
-        <div className="bg-white shadow rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
+        <div className="bg-white shadow rounded-lg overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 whitespace-nowrap">
             <thead className="bg-gray-50">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tip</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                 <th scope="col" className="relative px-6 py-3">
                   <span className="sr-only">Actions</span>
@@ -80,10 +82,12 @@ export default function ServicesList({ currentCycleId }: ServicesListProps) {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {services.map((service) => (
-                <tr key={service.id}>
+                <tr key={service.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{service.name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{service.customer || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${service.price.toFixed(2)}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(service.date).toLocaleString()}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${(service.tip || 0).toFixed(2)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(service.date).toLocaleDateString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <Button variant="ghost" size="sm" onClick={() => handleEditService(service)} className="mr-2">Edit</Button>
                     <Button variant="ghost" size="sm" onClick={() => handleDeleteService(service.id)} disabled={isDeleting}>Delete</Button>

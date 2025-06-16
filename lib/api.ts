@@ -61,9 +61,20 @@ export interface NewService {
 
 // --- Base Query Setup ---
 
+// --- Dynamic Base URL Resolution ---
+// When NEXT_PUBLIC_API_URL is set (e.g., during local development with a custom port)
+// we honour it. Otherwise:
+//   • On the browser we use a relative path so that requests go to the same origin
+//     that served the Next.js app (works for Fly.io and any other hosting).
+//   • On the server (SSR) we fall back to localhost with whatever PORT the Express
+//     server is bound to (defaults to 3001 for local dev).
+const isServer = typeof window === "undefined";
+const serverPort = process.env.PORT || 3001;
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL
     ? `${process.env.NEXT_PUBLIC_API_URL}/api`
-    : "http://localhost:3001/api";
+    : isServer
+    ? `http://localhost:${serverPort}/api`
+    : "/api";
 const baseQuery = fetchBaseQuery({
     baseUrl: apiBaseUrl, // Uses env var or fallback
     prepareHeaders: (headers, { getState }) => {

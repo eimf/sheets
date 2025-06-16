@@ -6,7 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
 
 // --- Utility Functions ---
 const ensureDirectory = async (dirPath) => {

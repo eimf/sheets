@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: sheets-app
+    env: node
+    plan: free
+    buildCommand: "npm ci && npm run build"
+    startCommand: "node server/server.js"
+    autoDeploy: true
+    disk:
+      name: sqlite-data
+      mountPath: server/data
+      sizeGB: 1

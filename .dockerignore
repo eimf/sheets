@@ -1,0 +1,22 @@
+# Ignore files/folders that should not be copied into Docker build context
+# (Especially host "node_modules" which may contain binaries for macOS)
+node_modules
+npm-debug.log
+.DS_Store
+
+# Git related
+.git
+.gitignore
+
+# Fly / CI files that are not needed in image
+fly.toml
+README.md
+
+# Local environment files
+*.env
+.env.*
+
+# Editor / OS artifacts
+*.swp
+*.swo
+*.bak

@@ -10,8 +10,10 @@ COPY package*.json ./
 # Install build tools for native addon compilation, install deps, then rebuild sqlite3 from source for glibc compatibility
 RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential libsqlite3-dev \
     && npm ci --omit=dev \
+    # remove any downloaded prebuilt binaries so we compile for linux/amd64
+    && rm -rf node_modules/sqlite3/build \
     && npm rebuild sqlite3 --build-from-source \
-    && apt-get purge -y build-essential python3 \
+    && apt-get purge -y build-essential python3 libsqlite3-dev \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 

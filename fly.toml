@@ -2,7 +2,7 @@
 # Replace "sheets-app" with a unique name if already taken
 app = "sheets-app"
 
-primary_region = "dfw" # choose closest region (e.g., iad, sjc, lax, gru, etc.)
+primary_region = "iad" # choose closest region (e.g., iad, sjc, lax, gru, etc.)
 
 [build]
   dockerfile = "Dockerfile"

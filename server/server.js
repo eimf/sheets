@@ -136,9 +136,31 @@ db = new sqlite3.Database(path.join(dataDir, 'sheets.db'), (err) => {
 });
 
 // --- Middleware --- 
-app.use(cors());
+// Configure CORS with credentials support
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://your-production-domain.com'] 
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(express.static("public"));
+
+// Admin Middleware
+function requireAdmin(req, res, next) {
+    if (req.user && req.user.role === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ error: 'Admin access required' });
+    }
+}
 
 // Authentication Middleware
 const authenticateUser = (req, res, next) => {
@@ -167,6 +189,47 @@ const authenticateUser = (req, res, next) => {
         }
     );
 };
+
+// --- Admin Endpoints ---
+// Get all cycles for admin
+app.get('/api/admin/cycles', authenticateUser, requireAdmin, (req, res) => {
+    db.all(
+        'SELECT id, name, start_date as startDate, end_date as endDate FROM cycles ORDER BY id DESC',
+        [],
+        (err, cycles) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json(cycles);
+        }
+    );
+});
+
+// Get cycle stats for admin
+app.get('/api/admin/cycles/:cycleId/stats', authenticateUser, requireAdmin, (req, res) => {
+    const { cycleId } = req.params;
+    
+    const query = `
+        SELECT 
+            u.stylish,
+            SUM(s.price) as total_price,
+            SUM(COALESCE(s.tip, 0)) as total_tips,
+            COUNT(s.id) as service_count
+        FROM services s
+        JOIN users u ON s.user_id = u.id
+        JOIN cycles c ON s.cycle_id = c.id
+        WHERE c.id = ?
+        GROUP BY u.stylish
+        ORDER BY total_price DESC;
+    `;
+
+    db.all(query, [cycleId], (err, stats) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(stats);
+    });
+});
 
 // --- Auth Endpoints --- 
 app.post("/api/auth/register", (req, res) => {

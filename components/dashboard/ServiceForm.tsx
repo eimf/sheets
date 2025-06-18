@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
-    useAddServiceToCycleMutation,
+    useCreateServiceMutation,
     useUpdateServiceMutation,
     Service,
     NewService,
@@ -92,10 +92,8 @@ export default function ServiceForm({
     service,
     currentCycleId,
 }: ServiceFormProps) {
-    const [addServiceToCycle, { isLoading: isAdding }] =
-        useAddServiceToCycleMutation();
-    const [updateService, { isLoading: isUpdating }] =
-        useUpdateServiceMutation();
+    const [createService, { isLoading: isAdding }] = useCreateServiceMutation();
+    const [updateService, { isLoading: isUpdating }] = useUpdateServiceMutation();
 
     const {
         register,
@@ -170,9 +168,9 @@ export default function ServiceForm({
                 }).unwrap();
                 toast.success("Service updated successfully!");
             } else {
-                await addServiceToCycle({
+                await createService({
+                    ...serviceDetails,
                     cycleId: currentCycleId,
-                    serviceDetails,
                 }).unwrap();
                 toast.success("Service added successfully!");
             }

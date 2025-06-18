@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { useGetServicesForCycleQuery, useDeleteServiceMutation, Service } from '@/lib/api';
+import { useGetServicesQuery, useDeleteServiceMutation, Service } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import ServiceForm from './ServiceForm';
 import { toast } from 'sonner';
@@ -14,7 +14,7 @@ export default function ServicesList({ currentCycleId }: ServicesListProps) {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
 
-  const { data: services, isLoading, isError, error } = useGetServicesForCycleQuery(currentCycleId, {
+  const { data: services, isLoading, isError, error } = useGetServicesQuery(currentCycleId || undefined, {
     skip: !currentCycleId,
   });
 
@@ -33,7 +33,7 @@ export default function ServicesList({ currentCycleId }: ServicesListProps) {
   const handleDeleteService = async (serviceId: string) => {
     if (window.confirm('Are you sure you want to delete this service?')) {
       try {
-        await deleteService({ serviceId, cycleId: currentCycleId }).unwrap();
+        await deleteService(serviceId).unwrap();
         toast.success('Service deleted successfully!');
       } catch (err) {
         toast.error('Failed to delete service.');

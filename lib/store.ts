@@ -1,6 +1,7 @@
 import { configureStore, combineReducers, AnyAction } from '@reduxjs/toolkit';
 import { setupListeners } from '@reduxjs/toolkit/query';
 import { apiSlice } from './api';
+import { adminApi } from './adminApi';
 import authReducer from './slices/authSlice';
 import servicesReducer from './slices/servicesSlice';
 import { authMiddleware } from './middleware/authMiddleware';
@@ -9,6 +10,7 @@ import { ThunkAction } from 'redux-thunk';
 // Combine all reducers into a single app reducer
 const appReducer = combineReducers({
   [apiSlice.reducerPath]: apiSlice.reducer,
+  [adminApi.reducerPath]: adminApi.reducer,
   auth: authReducer,
   services: servicesReducer,
 });
@@ -30,11 +32,12 @@ const storeInstance = configureStore({
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       serializableCheck: {
-        ignoredActions: [apiSlice.util.resetApiState.type],
+        ignoredActions: [apiSlice.util.resetApiState.type, adminApi.util.resetApiState.type],
       },
-    }).concat(apiSlice.middleware, authMiddleware),
+    }).concat(apiSlice.middleware, adminApi.middleware, authMiddleware),
 });
 
+// Setup listeners for all API slices
 setupListeners(storeInstance.dispatch);
 
 // Export types that depend on store

@@ -1,16 +1,12 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 
-// It's good practice to define RootState in your store configuration
-// and import it here for type safety with getState.
-// Example: import type { RootState } from '../store';
-
 // --- Type Definitions ---
 
 export interface User {
     id: string;
     email: string;
-    stylish: string; // Reflects removal of username and rename of full_name
-    role?: string; // User role (e.g., 'user', 'admin')
+    stylish: string;
+    role?: string;
 }
 
 export interface AuthResponse {
@@ -32,8 +28,15 @@ export interface RegisterRequest {
 export interface Cycle {
     id: string;
     name: string;
-    startDate?: string; // ISO date string
-    endDate?: string; // ISO date string
+    startDate?: string;
+    endDate?: string;
+}
+
+export interface CycleStats {
+    stylish: string;
+    total_price: number;
+    total_tips: number;
+    service_count: number;
 }
 
 export interface NewCycle {
@@ -50,9 +53,9 @@ export interface Service {
     payments?: PaymentDetail[];
     price: number;
     tip?: number;
-    date: string; // ISO date string
+    date: string;
+    cycleId: string;
     userId: string;
-    cycleId: string; // Services are associated with a user and a cycle
 }
 
 export interface NewService {
@@ -62,209 +65,165 @@ export interface NewService {
     payments?: PaymentDetail[];
     price: number;
     tip?: number;
-    date: string; // ISO date string
-    // cycleId will be part of the URL path when adding a new service
-    // userId is typically inferred by the backend
+    date: string;
+    cycleId: string;
 }
 
 export interface PaymentDetail {
-    method: "card" | "cash" | "cashapp" | "zelle" | "other";
+    method: 'card' | 'cash' | 'cashapp' | 'zelle' | 'other';
     amount: number;
-    label?: string; // only for other
+    label?: string;
 }
 
 // --- Base Query Setup ---
-
-// --- Dynamic Base URL Resolution ---
-// When NEXT_PUBLIC_API_URL is set (e.g., during local development with a custom port)
-// we honour it. Otherwise:
-//   • On the browser we use a relative path so that requests go to the same origin
-//     that served the Next.js app (works for Fly.io and any other hosting).
-//   • On the server (SSR) we fall back to localhost with whatever PORT the Express
-//     server is bound to (defaults to 3001 for local dev).
-const isServer = typeof window === "undefined";
-const serverPort = process.env.PORT || 3001;
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL
-    ? `${process.env.NEXT_PUBLIC_API_URL}/api`
-    : isServer
-    ? `http://localhost:${serverPort}/api`
-    : "/api";
+const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
 const baseQuery = fetchBaseQuery({
-    baseUrl: apiBaseUrl, // Uses env var or fallback
-    prepareHeaders: (headers, { getState }) => {
-        // TODO: Replace `any` with your actual `RootState` type for type safety.
-        // This assumes your auth token is stored in `state.auth.token`.
-        const token = (getState() as any).auth?.token;
-        if (token) {
-            headers.set("authorization", `Bearer ${token}`);
+    baseUrl: `${baseUrl}/api`,
+    credentials: 'include',
+    prepareHeaders: (headers) => {
+        if (typeof window !== 'undefined') {
+            const token = localStorage.getItem('salonToken');
+            if (token) {
+                headers.set('authorization', `Bearer ${token}`);
+            }
         }
         return headers;
     },
 });
 
 // --- API Slice Definition ---
-
 export const apiSlice = createApi({
-    reducerPath: "api",
+    reducerPath: 'api',
     baseQuery,
-    tagTypes: ["Profile", "User", "Cycle", "Service"],
+    tagTypes: ['User', 'Cycle', 'Service'],
     endpoints: (builder) => ({
-        // Authentication Endpoints
+        // Auth endpoints
         login: builder.mutation<AuthResponse, LoginRequest>({
             query: (credentials) => ({
-                url: "/auth/login",
-                method: "POST",
+                url: '/auth/login',
+                method: 'POST',
                 body: credentials,
             }),
-            invalidatesTags: [{ type: "Profile", id: "CURRENT" }],
+            invalidatesTags: ['User'],
         }),
         register: builder.mutation<AuthResponse, RegisterRequest>({
-            query: (userInfo) => ({
-                url: "/auth/register",
-                method: "POST",
-                body: userInfo,
+            query: (userData) => ({
+                url: '/auth/register',
+                method: 'POST',
+                body: userData,
             }),
-            invalidatesTags: [{ type: "Profile", id: "CURRENT" }],
         }),
         getProfile: builder.query<User, void>({
-            query: () => "/auth/profile",
+            query: () => '/auth/profile',
+            providesTags: ['User'],
+        }),
+        
+        // Cycle endpoints
+        getCycles: builder.query<Cycle[], void>({
+            query: () => '/cycles',
             providesTags: (result) =>
                 result
-                    ? [
-                          { type: "Profile", id: "CURRENT" },
-                          { type: "User", id: result.id },
-                      ]
-                    : [{ type: "Profile", id: "CURRENT" }],
+                    ? [...result.map(({ id }) => ({ type: 'Cycle' as const, id })), 'Cycle']
+                    : ['Cycle']
         }),
-
-        // Cycle Endpoints
-        getCycles: builder.query<Cycle[], void>({
-            query: () => "/cycles", // Assumes backend filters cycles for the authenticated user
-            providesTags: (result = []) => [
-                ...result.map(({ id }) => ({ type: "Cycle" as const, id })),
-                { type: "Cycle", id: "LIST" },
-            ],
-        }),
-        getCycleById: builder.query<Cycle, string>({
+        getCycle: builder.query<Cycle, string>({
             query: (id) => `/cycles/${id}`,
-            providesTags: (result, error, id) => [{ type: "Cycle", id }],
+            providesTags: (result, error, id) => [{ type: 'Cycle', id }],
         }),
-        addCycle: builder.mutation<Cycle, NewCycle>({
-            query: (newCycle) => ({
-                url: "/cycles",
-                method: "POST",
-                body: newCycle,
+        createCycle: builder.mutation<Cycle, NewCycle>({
+            query: (cycle) => ({
+                url: '/cycles',
+                method: 'POST',
+                body: cycle,
             }),
-            invalidatesTags: [{ type: "Cycle", id: "LIST" }],
+            invalidatesTags: ['Cycle'],
         }),
-        updateCycle: builder.mutation<Cycle, Partial<Cycle> & { id: string }>({
-            query: ({ id, ...patch }) => ({
+        updateCycle: builder.mutation<Cycle, Partial<Cycle> & Pick<Cycle, 'id'>>({
+            query: ({ id, ...updates }) => ({
                 url: `/cycles/${id}`,
-                method: "PUT",
-                body: patch,
+                method: 'PATCH',
+                body: updates,
             }),
-            invalidatesTags: (result, error, { id }) => [
-                { type: "Cycle", id },
-                { type: "Cycle", id: "LIST" },
-            ],
+            invalidatesTags: (result, error, { id }) => [{ type: 'Cycle', id }],
         }),
-        deleteCycle: builder.mutation<
-            { success: boolean; id?: string },
-            string
-        >({
+        deleteCycle: builder.mutation<void, string>({
             query: (id) => ({
                 url: `/cycles/${id}`,
-                method: "DELETE",
+                method: 'DELETE',
             }),
-            invalidatesTags: (result, error, id) => [
-                { type: "Cycle", id },
-                { type: "Cycle", id: "LIST" },
-            ],
+            invalidatesTags: ['Cycle'],
         }),
-
-        // Service Endpoints (associated with Cycles)
-        getServicesForCycle: builder.query<Service[], string>({
-            // Argument is cycleId
-            query: (cycleId) => `/cycles/${cycleId}/services`,
-            providesTags: (result = [], error, cycleId) => [
-                ...result.map(({ id }) => ({ type: "Service" as const, id })),
-                { type: "Service", id: "LIST" }, // General list tag
-                { type: "Service", id: `CYCLE_SERVICES_${cycleId}` }, // Cycle-specific list tag
-            ],
+        
+        // Admin endpoints
+        getAdminCycles: builder.query<Cycle[], void>({
+            query: () => '/admin/cycles',
         }),
-        addServiceToCycle: builder.mutation<
-            Service,
-            { cycleId: string; serviceDetails: NewService }
-        >({
-            query: ({ cycleId, serviceDetails }) => ({
-                url: `/cycles/${cycleId}/services`,
-                method: "POST",
-                body: serviceDetails,
+        getCycleStats: builder.query<CycleStats[], string>({
+            query: (cycleId) => `/admin/cycles/${cycleId}/stats`,
+        }),
+        
+        // Service endpoints
+        getServices: builder.query<Service[], string | void>({
+            query: (cycleId) => ({
+                url: cycleId ? `/cycles/${cycleId}/services` : '/services'
             }),
-            invalidatesTags: (result, error, { cycleId }) => [
-                { type: "Service", id: "LIST" },
-                { type: "Service", id: `CYCLE_SERVICES_${cycleId}` },
-            ],
-        }),
-        getServiceById: builder.query<Service, string>({
-            // Assumes service IDs are globally unique
-            query: (serviceId) => `/services/${serviceId}`,
-            providesTags: (result, error, serviceId) => [
-                { type: "Service", id: serviceId },
-            ],
-        }),
-        updateService: builder.mutation<
-            Service,
-            Partial<Service> & { id: string }
-        >({
-            query: ({ id, ...patch }) => ({
-                url: `/services/${id}`,
-                method: "PUT",
-                body: patch,
-            }),
-            invalidatesTags: (result, error, { id }) =>
+            providesTags: (result) =>
                 result
-                    ? [
-                          { type: "Service", id },
-                          { type: "Service", id: "LIST" },
-                          {
-                              type: "Service",
-                              id: `CYCLE_SERVICES_${result.cycleId}`,
-                          }, // Assumes result contains cycleId
-                      ]
-                    : [],
+                    ? [...result.map(({ id }) => ({ type: 'Service' as const, id })), 'Service']
+                    : ['Service']
         }),
-        deleteService: builder.mutation<
-            { success: boolean; id?: string },
-            { serviceId: string; cycleId: string }
-        >({
-            query: ({ serviceId }) => ({
-                url: `/services/${serviceId}`,
-                method: "DELETE",
+        getService: builder.query<Service, string>({
+            query: (id) => `/services/${id}`,
+            providesTags: (result, error, id) => [{ type: 'Service', id }],
+        }),
+        createService: builder.mutation<Service, Omit<NewService, 'cycleId'> & { cycleId: string }>({
+            query: ({ cycleId, ...service }) => ({
+                url: `/cycles/${cycleId}/services`,
+                method: 'POST',
+                body: service,
             }),
-            // cycleId is passed in args to correctly invalidate the cache for that cycle's services
-            invalidatesTags: (result, error, { serviceId, cycleId }) => [
-                { type: "Service", id: serviceId },
-                { type: "Service", id: "LIST" },
-                { type: "Service", id: `CYCLE_SERVICES_${cycleId}` },
+            invalidatesTags: ['Service', 'Cycle'],
+        }),
+        updateService: builder.mutation<Service, Partial<Service> & Pick<Service, 'id'>>({
+            query: ({ id, ...updates }) => ({
+                url: `/services/${id}`,
+                method: 'PATCH',
+                body: updates,
+            }),
+            invalidatesTags: (result, error, { id }) => [
+                { type: 'Service', id },
+                'Cycle',
             ],
+        }),
+        deleteService: builder.mutation<void, string>({
+            query: (id) => ({
+                url: `/services/${id}`,
+                method: 'DELETE',
+            }),
+            invalidatesTags: ['Service', 'Cycle'],
         }),
     }),
 });
 
 // Export hooks for usage in UI components
 export const {
+    // Auth
     useLoginMutation,
     useRegisterMutation,
     useGetProfileQuery,
+    // Cycles
     useGetCyclesQuery,
-    useGetCycleByIdQuery,
-    useAddCycleMutation,
+    useGetCycleQuery,
+    useCreateCycleMutation,
     useUpdateCycleMutation,
     useDeleteCycleMutation,
-    useGetServicesForCycleQuery,
-    useAddServiceToCycleMutation,
-    useGetServiceByIdQuery,
+    // Admin
+    useGetAdminCyclesQuery,
+    useGetCycleStatsQuery,
+    // Services
+    useGetServicesQuery,
+    useGetServiceQuery,
+    useCreateServiceMutation,
     useUpdateServiceMutation,
     useDeleteServiceMutation,
 } = apiSlice;

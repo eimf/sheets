@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect } from "react";
-import { useGetCyclesQuery, useAddCycleMutation, useGetServicesForCycleQuery, Cycle } from "@/lib/api";
+import { skipToken } from "@reduxjs/toolkit/query";
+import { 
+  useGetCyclesQuery, 
+  useCreateCycleMutation, 
+  useGetServicesQuery, 
+  Cycle 
+} from "@/lib/api";
 import {
     Select,
     SelectContent,
@@ -10,6 +16,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import CreateCycleForm from "@/components/dashboard/CreateCycleForm";
 import { toast } from "sonner";
 import { useSelector } from "react-redux";
 import { selectAuth } from "@/lib/slices/authSlice";
@@ -17,22 +24,26 @@ import { selectAuth } from "@/lib/slices/authSlice";
 interface CycleManagerProps {
     currentCycleId: string | null;
     onCycleChange: (cycleId: string) => void;
+    showCreateButton?: boolean;
 }
 
 export default function CycleManager({
     currentCycleId,
     onCycleChange,
+    showCreateButton = true,
 }: CycleManagerProps) {
     const { data: cycles, isLoading, isError, error } = useGetCyclesQuery();
-    const [addCycle, { isLoading: isAddingCycle }] = useAddCycleMutation();
+    const [addCycle, { isLoading: isAddingCycle }] = useCreateCycleMutation();
 
     // Fetch services for the selected cycle (if any)
-    const { data: servicesForCycle } = useGetServicesForCycleQuery(currentCycleId!, {
-        skip: !currentCycleId,
-    });
+    const { data: servicesForCycle } = useGetServicesQuery(
+        currentCycleId || undefined,
+        { skip: !currentCycleId }
+    );
 
     const auth = useSelector(selectAuth);
     const isUserRole = auth.user?.role === "user";
+    const isAdminRole = auth.user?.role === "admin";
 
     const formatDate = (dateString: string | undefined): string => {
         if (!dateString) return "";
@@ -46,31 +57,24 @@ export default function CycleManager({
         });
     };
 
-    // Automatically select closest cycle for 'user' role
+    // Automatically select cycle for today for 'user' role
     useEffect(() => {
         if (isUserRole && cycles && cycles.length > 0 && !currentCycleId) {
-            onCycleChange(cycles[0].id);
+            const today = new Date();
+            const todayStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
+            const found = cycles.find(
+                (c: Cycle) =>
+                    c.startDate <= todayStr && c.endDate >= todayStr
+            );
+            if (found) {
+                onCycleChange(found.id);
+            } else {
+                // If no cycle matches today, do not select any (or fallback logic)
+                onCycleChange("");
+            }
         }
     }, [isUserRole, cycles, currentCycleId, onCycleChange]);
 
-    const handleCreateCycle = async () => {
-        if (isUserRole) return; // extra guard
-        try {
-            const startDate = new Date();
-            const cycleName = `Cycle of ${startDate.toLocaleDateString()}`;
-
-            const newCycle = await addCycle({
-                name: cycleName,
-                startDate: startDate.toISOString(),
-            }).unwrap();
-
-            toast.success("New cycle created successfully!");
-            onCycleChange(newCycle.id);
-        } catch (err) {
-            console.error("Failed to create cycle:", err);
-            toast.error("Failed to create new cycle.");
-        }
-    };
 
     if (isLoading) return <div>Loading cycles...</div>;
     if (isError) {
@@ -96,7 +100,15 @@ export default function CycleManager({
                 ) : (
                     <span>No cycle available.</span>
                 )}
-
+                {showCreateButton && (
+                    <Button
+                        onClick={handleCreateCycle}
+                        disabled={isAddingCycle}
+                        variant="outline"
+                    >
+                        New Cycle
+                    </Button>
+                )}
                 {/* Totals Section */}
                 {currentCycleId && (
                     <div className="mt-2 text-sm text-gray-700 dark:text-gray-300">
@@ -109,32 +121,28 @@ export default function CycleManager({
     }
 
     return (
-        <div className="flex items-center space-x-4 bg-white dark:bg-gray-900 shadow rounded-lg p-6 border-l-4 border-indigo-500">
-            <div className="flex-grow">
-                <Select
-                    value={currentCycleId || ""}
-                    onValueChange={(value) => onCycleChange(value)}
-                >
-                    <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select a cycle" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {cycles &&
-                            cycles.map((cycle: Cycle) => (
-                                <SelectItem key={cycle.id} value={cycle.id}>
-                                    {cycle.startDate && cycle.endDate
-                                        ? `${formatDate(
-                                              cycle.startDate
-                                          )} - ${formatDate(cycle.endDate)}`
-                                        : cycle.name}
-                                </SelectItem>
-                            ))}
-                    </SelectContent>
-                </Select>
-            </div>
-            <Button onClick={handleCreateCycle} disabled={isAddingCycle}>
-                {isAddingCycle ? "Creating..." : "Create New Cycle"}
-            </Button>
+        <div className="space-y-4">
+            <Select
+                value={currentCycleId ?? ""}
+                onValueChange={onCycleChange}
+            >
+                <SelectTrigger className="w-full max-w-xs">
+                    <SelectValue placeholder="Select a cycle" />
+                </SelectTrigger>
+                <SelectContent>
+                    {cycles?.map((cycle: Cycle) => (
+                        <SelectItem key={cycle.id} value={cycle.id}>
+                            {cycle.name}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            {showCreateButton && isAdminRole && (
+                <div className="mt-4">
+                  <h2 className="text-lg font-semibold mb-2">Create New Cycle</h2>
+                  <CreateCycleForm onSuccess={() => {}} />
+                </div>
+            )}
         </div>
     );
 }

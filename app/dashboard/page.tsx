@@ -17,11 +17,13 @@ export default function DashboardPage() {
 
     useEffect(() => {
         if (!loading && !isAuthenticated) {
-            router.push("/login");
+            router.replace("/login");
+        } else if (!loading && user?.role === "admin") {
+            router.replace("/admin/dashboard");
         }
-    }, [isAuthenticated, loading, router]);
+    }, [isAuthenticated, loading, router, user]);
 
-    if (loading || !isAuthenticated) {
+    if (loading || !isAuthenticated || user?.role === "admin") {
         return (
             <div className="flex items-center justify-center h-screen">
                 <p>Loading...</p>
@@ -37,6 +39,7 @@ export default function DashboardPage() {
                     <CycleManager
                         currentCycleId={currentCycleId}
                         onCycleChange={setCurrentCycleId}
+                        showCreateButton={false}
                     />
                     {currentCycleId && (
                         <ServicesList currentCycleId={currentCycleId} />

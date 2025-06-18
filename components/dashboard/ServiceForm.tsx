@@ -60,11 +60,9 @@ const serviceSchema = z
                 const total = arr.reduce((s, p) => s + p.amount, 0);
                 return !isNaN(total);
             }, "Invalid payments"),
-        date: z
-            .string()
-            .refine((val) => !isNaN(Date.parse(val)), {
-                message: "Invalid date",
-            }),
+        date: z.string().refine((val) => !isNaN(Date.parse(val)), {
+            message: "Invalid date",
+        }),
     })
     .refine(
         (data) => {
@@ -93,7 +91,8 @@ export default function ServiceForm({
     currentCycleId,
 }: ServiceFormProps) {
     const [createService, { isLoading: isAdding }] = useCreateServiceMutation();
-    const [updateService, { isLoading: isUpdating }] = useUpdateServiceMutation();
+    const [updateService, { isLoading: isUpdating }] =
+        useUpdateServiceMutation();
 
     const {
         register,

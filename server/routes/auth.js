@@ -7,13 +7,11 @@ const router = express.Router();
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
-        console.log('No authorization header');
         return res.status(401).json({ error: 'Authentication required' });
     }
 
     const token = authHeader.split(' ')[1];
     if (!token || token.length !== 36) {
-        console.log('Invalid token format:', token);
         return res.status(401).json({ error: 'Invalid token format' });
     }
 
@@ -21,12 +19,10 @@ const authenticateToken = async (req, res, next) => {
         // First check if session exists
         db.get('SELECT id, user_id, expires_at FROM sessions WHERE id = ?', [token], (err, session) => {
             if (err) {
-                console.error('Database error:', err);
                 return res.status(500).json({ error: 'Internal server error' });
             }
 
             if (!session) {
-                console.log('Session not found:', token);
                 return res.status(401).json({ error: 'Invalid session' });
             }
 
@@ -34,7 +30,6 @@ const authenticateToken = async (req, res, next) => {
             const now = new Date();
             const expiresAt = new Date(session.expires_at);
             if (now > expiresAt) {
-                console.log('Session expired:', token);
                 return res.status(401).json({ error: 'Session expired' });
             }
 
@@ -47,18 +42,15 @@ const authenticateToken = async (req, res, next) => {
                 [newExpiration, token],
                 function(err) {
                     if (err) {
-                        console.error('Failed to extend session:', err);
                         return res.status(500).json({ error: 'Failed to extend session' });
                     }
                     
-                    console.log('Session extended:', token);
                     req.userId = session.user_id;
                     next();
                 }
             );
         });
     } catch (error) {
-        console.error('Session validation error:', error);
         return res.status(500).json({ error: 'Internal server error' });
     }
 };

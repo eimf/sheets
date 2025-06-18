@@ -19,9 +19,11 @@ export interface CycleStats {
 const baseQuery = fetchBaseQuery({
     baseUrl: '/api',
     prepareHeaders: (headers) => {
-        const token = localStorage.getItem('token');
-        if (token) {
-            headers.set('authorization', `Bearer ${token}`);
+        if (typeof window !== 'undefined') {
+            const token = localStorage.getItem('token'); // Or 'salonToken' to be consistent
+            if (token) {
+                headers.set('authorization', `Bearer ${token}`);
+            }
         }
         return headers;
     },

@@ -2,34 +2,35 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { useCreateCycleMutation } from "@/lib/api";
+import { NewCycle } from "@/lib/api"; // Import NewCycle type
 
-export default function CreateCycleForm({ onSuccess }: { onSuccess?: () => void }) {
+interface CreateCycleFormProps {
+  onSubmit: (data: NewCycle) => Promise<void>;
+  onCancel: () => void;
+  isLoading: boolean;
+}
+
+export default function CreateCycleForm({ onSubmit, onCancel, isLoading }: CreateCycleFormProps) {
   const [name, setName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [createCycle, { isLoading }] = useCreateCycleMutation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !startDate || !endDate) {
-      toast.error("All fields are required.");
+      toast.error("All fields are required. Start date and end date must be provided.");
       return;
     }
-    try {
-      await createCycle({ name, startDate, endDate }).unwrap();
-      toast.success("Cycle created!");
-      setName("");
-      setStartDate("");
-      setEndDate("");
-      onSuccess?.();
-    } catch (err: any) {
-      toast.error(err?.data?.error || "Failed to create cycle.");
-    }
+    // Ensure dates are in YYYY-MM-DD format if necessary, though type="date" usually handles this.
+    await onSubmit({ name, startDate, endDate });
+    // Clearing fields can be done here if onSubmit doesn't navigate away or if it's desired UX
+    // setName("");
+    // setStartDate("");
+    // setEndDate("");
   };
 
   return (
-    <form className="space-y-4 p-4 bg-white rounded shadow max-w-md mx-auto" onSubmit={handleSubmit}>
+    <form className="space-y-4 p-4 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg shadow-md max-w-md mx-auto" onSubmit={handleSubmit}>
       <div>
         <label className="block text-sm font-medium mb-1">Cycle Name</label>
         <input
@@ -62,9 +63,14 @@ export default function CreateCycleForm({ onSuccess }: { onSuccess?: () => void 
           />
         </div>
       </div>
-      <Button type="submit" disabled={isLoading} className="w-full">
-        {isLoading ? "Creating..." : "Create Cycle"}
-      </Button>
+      <div className="flex justify-end space-x-3">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isLoading}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isLoading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+          {isLoading ? "Creating..." : "Create Cycle"}
+        </Button>
+      </div>
     </form>
   );
 }

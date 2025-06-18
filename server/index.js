@@ -22,7 +22,7 @@ app.use('/api/services', servicesRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-    console.error(err.stack);
+    // Internal server error occurred
     res.status(500).json({
         success: false,
         error: 'Internal Server Error'
@@ -31,5 +31,5 @@ app.use((err, req, res, next) => {
 
 // Start server
 app.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
+    // Server started successfully
 });

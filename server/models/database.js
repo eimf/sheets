@@ -3,9 +3,9 @@ const config = require('../config/config');
 
 const db = new sqlite3.Database(config.database.filename, (err) => {
     if (err) {
-        console.error('Error opening database:', err);
+        // Error opening database
     } else {
-        console.log('Connected to SQLite database');
+        // Connected to database
     }
 });
 

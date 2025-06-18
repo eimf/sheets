@@ -11,6 +11,9 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'Tableau de Katia - Salon Management',
   description: 'Professional salon service logging and management system',
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({

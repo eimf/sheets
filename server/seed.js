@@ -7,10 +7,8 @@ const path = require('path');
 const dbPath = path.join(__dirname, 'data', 'sheets.db');
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) {
-        console.error('Error opening database', err.message);
         process.exit(1);
     }
-    console.log('Connected to the SQLite database.');
 });
 
 function getCurrentCycle(today) {
@@ -29,12 +27,12 @@ function getCurrentCycle(today) {
 
 function seedDatabase() {
     db.serialize(() => {
-        console.log('Wiping existing services and cycles data...');
+        // Wiping existing services and cycles data
         // We only drop services and cycles. Users are preserved.
         db.run(`DROP TABLE IF EXISTS services`);
         db.run(`DROP TABLE IF EXISTS cycles`);
 
-        console.log('Recreating tables...');
+        // Recreating tables
         // Note: The users table is NOT dropped or recreated here.
         // It's assumed to be created by server.js on first run.
         db.run(`CREATE TABLE cycles (
@@ -62,26 +60,26 @@ function seedDatabase() {
         // If one exists, we'll use the first one we find.
         db.get('SELECT id, email FROM users ORDER BY id ASC LIMIT 1', [], (err, user) => {
             if (err) {
-                console.error('Error checking for user:', err);
+                // Error checking for user
                 db.close();
                 return;
             }
 
             if (user) {
-                console.log(`Found existing user '${user.email}' (ID: ${user.id}). Seeding data for this user.`);
+                // Using existing user for seeding
                 seedDataForUser(user.id);
             } else {
-                console.log('No users found. Creating a default user.');
+                // Creating default user
                 const insertUserSql = `INSERT INTO users (email, password, stylish) VALUES (?, ?, ?)`;
                 // IMPORTANT: In a real app, use a hashed password.
                 db.run(insertUserSql, ['test@test.com', 'password', 'Test Stylist'], function(err) {
                     if (err) {
-                        console.error('Error creating default user:', err);
+                        // Error creating default user
                         db.close();
                         return;
                     }
                     const newUserId = this.lastID;
-                    console.log(`Created default user 'test@test.com' with ID: ${newUserId}`);
+                    // Default user created
                     seedDataForUser(newUserId);
                 });
             }
@@ -98,12 +96,12 @@ function seedDataForUser(userId) {
 
     db.run(insertCycleSql, [cycleName, start_date, end_date], function(err) {
         if (err) {
-            console.error('Error inserting cycle:', err);
+            // Error inserting cycle
             db.close();
             return;
         }
         const cycleId = this.lastID;
-        console.log(`Inserted cycle '${cycleName}' with ID: ${cycleId}`);
+        // Cycle inserted
 
         // Seed services for the given user
         const servicesToSeed = [
@@ -117,13 +115,13 @@ function seedDataForUser(userId) {
         servicesToSeed.forEach(service => {
             db.run(insertServiceSql, [userId, cycleId, service.name, service.price, service.tip, service.date], (err) => {
                 if (err) {
-                    console.error('Error inserting service:', err);
+                    // Error inserting service
                 } else {
-                    console.log(`Inserted service '${service.name}' for user ${userId}`);
+                    // Service inserted
                 }
                 completed++;
                 if (completed === servicesToSeed.length) {
-                    console.log('Database seeding complete.');
+                    // Database seeding complete
                     db.close();
                 }
             });

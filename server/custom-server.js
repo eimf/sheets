@@ -15,14 +15,13 @@ app.prepare().then(() => {
 
   server.listen(3000, (err) => {
     if (err) throw err;
-    console.log('> Ready on http://localhost:3000');
+    // Server started
   });
 
   // Handle process cleanup
   const cleanup = () => {
-    console.log('Shutting down server...');
+    // Shutting down server
     server.close(() => {
-      console.log('Server closed');
       process.exit(0);
     });
   };

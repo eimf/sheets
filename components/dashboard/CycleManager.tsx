@@ -32,6 +32,13 @@ export default function CycleManager({
     onCycleChange,
     showCreateButton = true,
 }: CycleManagerProps) {
+    // ...existing hooks and state
+
+    // Placeholder handler for "New Cycle" button
+    const handleCreateCycle = () => {
+        // TODO: Implement logic to create a new cycle
+        console.log('Create Cycle button clicked');
+    }
     const { data: cycles, isLoading, isError, error } = useGetCyclesQuery();
     const [addCycle, { isLoading: isAddingCycle }] = useCreateCycleMutation();
 
@@ -64,7 +71,10 @@ export default function CycleManager({
             const todayStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
             const found = cycles.find(
                 (c: Cycle) =>
-                    c.startDate <= todayStr && c.endDate >= todayStr
+                    c.startDate !== undefined &&
+                    c.endDate !== undefined &&
+                    c.startDate <= todayStr &&
+                    c.endDate >= todayStr
             );
             if (found) {
                 onCycleChange(found.id);
@@ -109,6 +119,8 @@ export default function CycleManager({
                         New Cycle
                     </Button>
                 )}
+
+
                 {/* Totals Section */}
                 {currentCycleId && (
                     <div className="mt-2 text-sm text-gray-700 dark:text-gray-300">

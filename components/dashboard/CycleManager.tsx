@@ -106,12 +106,16 @@ export default function CycleManager({
     }
 
     if (isUserRole) {
-        // Display readonly current cycle info
-        const current = cycles && cycles[0];
+        // Display readonly current cycle info (must match the cycle chosen for today)
+        const current = cycles?.find((c: Cycle) => String(c.id) === String(currentCycleId));
         const totalPrice =
-            servicesForCycle?.reduce((sum, s) => sum + s.price, 0) || 0;
+            currentCycleId && servicesForCycle
+                ? servicesForCycle.reduce((sum, s) => sum + s.price, 0)
+                : 0;
         const totalTip =
-            servicesForCycle?.reduce((sum, s) => sum + (s.tip || 0), 0) || 0;
+            currentCycleId && servicesForCycle
+                ? servicesForCycle.reduce((sum, s) => sum + (s.tip || 0), 0)
+                : 0;
 
         return (
             <div className="bg-white dark:bg-gray-900 shadow rounded-lg px-4 py-2 border-l-4 border-indigo-500">
@@ -127,7 +131,7 @@ export default function CycleManager({
                     <div>No cycle available.</div>
                 )}
                 {/* Totals row - matches admin style */}
-                {current && servicesForCycle && (
+                {current && currentCycleId && servicesForCycle && (
                     <div className="mt-2 w-full flex flex-nowrap items-center justify-between bg-gray-50 dark:bg-gray-800/50 px-3 py-2 rounded-md">
                         <div className="flex items-center whitespace-nowrap pr-2">
                             <span className="text-sm text-gray-500 dark:text-gray-400 mr-1">

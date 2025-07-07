@@ -4,6 +4,10 @@ const cors = require("cors");
 const fs = require("fs").promises;
 const path = require("path");
 const crypto = require("crypto");
+// Increase default max event listeners to avoid MaxListenersExceededWarning.
+// Adjust as needed; 20 should be sufficient for normal operation while still catching potential leaks.
+const { EventEmitter } = require("events");
+EventEmitter.defaultMaxListeners = 20;
 
 // --- Next.js Setup ---
 const next = require("next");
@@ -242,6 +246,7 @@ app.get(
 
         const query = `
         SELECT 
+            u.id as user_id,
             u.stylish,
             SUM(s.price) as total_price,
             SUM(COALESCE(s.tip, 0)) as total_tips,
@@ -250,7 +255,7 @@ app.get(
         JOIN users u ON s.user_id = u.id
         JOIN cycles c ON s.cycle_id = c.id
         WHERE c.id = ?
-        GROUP BY u.stylish
+        GROUP BY u.id, u.stylish
         ORDER BY total_price DESC;
     `;
 
@@ -546,8 +551,12 @@ app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
             "SELECT id, name, customer, notes, payments, price, tip, date, cycle_id as cycleId, user_id as userId FROM services WHERE cycle_id = ?";
         const queryParams = [cycleId];
 
-        // If the user is NOT an admin, add the user_id filter
-        if (userRole !== "admin") {
+        // Admin can optionally filter by specific user via query param ?userId=123
+        if (userRole === "admin" && req.query.userId) {
+            sqlQuery += " AND user_id = ?";
+            queryParams.push(req.query.userId);
+        } else if (userRole !== "admin") {
+            // Regular users only see their own services
             sqlQuery += " AND user_id = ?";
             queryParams.push(userId);
         }

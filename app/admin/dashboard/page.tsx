@@ -2,13 +2,20 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { useAppSelector } from "@/lib/hooks";
 import Header from "@/components/dashboard/Header";
 import CycleManager from "@/components/dashboard/CycleManager";
-import { useGetCycleStatsQuery, type CycleStats } from "@/lib/api";
+import {
+    useGetCycleStatsQuery,
+    useGetServicesForUserQuery,
+    type CycleStats,
+    type Service,
+    type PaymentDetail,
+} from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { skipToken } from "@reduxjs/toolkit/query";
 
 export default function AdminDashboardPage() {
     const router = useRouter();
@@ -16,6 +23,18 @@ export default function AdminDashboardPage() {
         (state) => state.auth
     );
     const [currentCycleId, setCurrentCycleId] = useState<string | null>(null);
+    const [selectedStylist, setSelectedStylist] = useState<{ id: string; name: string } | null>(null);
+    const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
+
+    // Fetch services for the selected stylist within the current cycle
+    const {
+        data: stylistServices = [],
+        isLoading: isLoadingStylistServices,
+    } = useGetServicesForUserQuery(
+        selectedStylist && currentCycleId
+            ? { cycleId: currentCycleId, userId: selectedStylist.id }
+            : skipToken
+    );
     
     const { data: cycleStats, isLoading: isLoadingStats } = useGetCycleStatsQuery(
         currentCycleId || '',
@@ -72,7 +91,7 @@ export default function AdminDashboardPage() {
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
                                         {cycleStats.map((stat: CycleStats) => (
-                                            <tr key={stat.stylish}>
+                                            <tr key={stat.user_id} className="cursor-pointer hover:bg-gray-100" onClick={() => setSelectedStylist({ id: String(stat.user_id), name: stat.stylish })}>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                     {stat.stylish}
                                                 </td>
@@ -89,6 +108,90 @@ export default function AdminDashboardPage() {
                                         ))}
                                     </tbody>
                                 </table>
+                            </div>
+                        )}
+
+                        {/* Services for selected stylist */}
+                        {selectedStylist && (
+                            <div className="mt-10">
+                                <h2 className="text-xl font-semibold mb-4">Services for {selectedStylist.name}</h2>
+                                {isLoadingStylistServices && <p>Loading services...</p>}
+                                {!isLoadingStylistServices && stylistServices && stylistServices.length > 0 && (
+                                    <div className="overflow-x-auto bg-white shadow rounded-lg">
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service</th>
+                                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                                                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
+                                                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Tip</th>
+                                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {stylistServices.map((svc: Service) => (
+                                                    <Fragment key={svc.id}>
+                                                        <tr
+                                                            className="cursor-pointer hover:bg-gray-50"
+                                                            onClick={() =>
+                                                                setExpandedServiceId((prev) =>
+                                                                    prev === svc.id ? null : svc.id
+                                                                )
+                                                            }
+                                                        >
+                                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                                                                {svc.name}
+                                                            </td>
+                                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                                                                {svc.customer || "-"}
+                                                            </td>
+                                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 text-right">
+                                                                ${svc.price.toFixed(2)}
+                                                            </td>
+                                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 text-right">
+                                                                ${(svc.tip || 0).toFixed(2)}
+                                                            </td>
+                                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                                                                {new Date(svc.date).toLocaleDateString()}
+                                                            </td>
+                                                        </tr>
+
+                                                        {expandedServiceId === svc.id && (
+                                                            <tr className="bg-gray-50">
+                                                                <td colSpan={5} className="px-4 py-4 text-sm text-gray-700">
+                                                                    <div className="space-y-2">
+                                                                        <div>
+                                                                            <span className="font-medium">Notes:</span>{" "}
+                                                                            {svc.notes || "—"}
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className="font-medium">Payments:</span>
+                                                                            {svc.payments && svc.payments.length > 0 ? (
+                                                                                <ul className="list-disc list-inside ml-4 mt-1">
+                                                                                    {svc.payments.map((p: PaymentDetail, idx: number) => (
+                                                                                        <li key={idx}>
+                                                                                            {p.method}: ${p.amount.toFixed(2)}{" "}
+                                                                                            {p.label ? `(${p.label})` : ""}
+                                                                                        </li>
+                                                                                    ))}
+                                                                                </ul>
+                                                                            ) : (
+                                                                                <span> —</span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        )}
+                                                    </Fragment>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                                {!isLoadingStylistServices && stylistServices && stylistServices.length === 0 && (
+                                    <p className="text-gray-500">No services found for this stylist in this cycle.</p>
+                                )}
                             </div>
                         )}
 

@@ -33,6 +33,8 @@ export interface Cycle {
 }
 
 export interface CycleStats {
+    user_id: string;
+
     stylish: string;
     total_price: number;
     total_tips: number;
@@ -163,6 +165,9 @@ export const apiSlice = createApi({
         }),
         
         // Service endpoints
+        getServicesForUser: builder.query<Service[], { cycleId: string; userId: string }>({
+            query: ({ cycleId, userId }) => `/cycles/${cycleId}/services?userId=${userId}`,
+        }),
         getServices: builder.query<Service[], string | void>({
             query: (cycleId) => ({
                 url: cycleId ? `/cycles/${cycleId}/services` : '/services'
@@ -220,6 +225,7 @@ export const {
     // Admin
     useGetAdminCyclesQuery,
     useGetCycleStatsQuery,
+    useGetServicesForUserQuery,
     // Services
     useGetServicesQuery,
     useGetServiceQuery,

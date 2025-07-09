@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useGetServicesQuery, useDeleteServiceMutation, Service } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import ServiceForm from './ServiceForm';
+import DeleteConfirmationModal from './DeleteConfirmationModal';
 import { toast } from 'sonner';
 
 interface ServicesListProps {
@@ -12,7 +13,9 @@ interface ServicesListProps {
 
 export default function ServicesList({ currentCycleId }: ServicesListProps) {
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
+  const [serviceToDelete, setServiceToDelete] = useState<string | null>(null);
 
   const { data: services, isLoading, isError, error } = useGetServicesQuery(currentCycleId || undefined, {
     skip: !currentCycleId,
@@ -30,16 +33,29 @@ export default function ServicesList({ currentCycleId }: ServicesListProps) {
     setIsFormOpen(true);
   };
 
-  const handleDeleteService = async (serviceId: string) => {
-    if (window.confirm('Are you sure you want to delete this service?')) {
-      try {
-        await deleteService(serviceId).unwrap();
-        toast.success('Service deleted successfully!');
-      } catch (err) {
-        toast.error('Failed to delete service.');
-        console.error(err);
-      }
+  const handleDeleteClick = (serviceId: string) => {
+    setServiceToDelete(serviceId);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!serviceToDelete) return;
+    
+    try {
+      await deleteService(serviceToDelete).unwrap();
+      toast.success('Service deleted successfully!');
+    } catch (err) {
+      toast.error('Failed to delete service.');
+      console.error(err);
+    } finally {
+      setIsDeleteModalOpen(false);
+      setServiceToDelete(null);
     }
+  };
+
+  const handleCancelDelete = () => {
+    setIsDeleteModalOpen(false);
+    setServiceToDelete(null);
   };
 
   const handleCloseForm = () => {
@@ -90,7 +106,7 @@ export default function ServicesList({ currentCycleId }: ServicesListProps) {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(service.date).toLocaleDateString()}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <Button variant="ghost" size="sm" onClick={() => handleEditService(service)} className="mr-2">Edit</Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDeleteService(service.id)} disabled={isDeleting}>Delete</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDeleteClick(service.id)} disabled={isDeleting}>Delete</Button>
                   </td>
                 </tr>
               ))}
@@ -107,8 +123,17 @@ export default function ServicesList({ currentCycleId }: ServicesListProps) {
       <ServiceForm
         isOpen={isFormOpen}
         onClose={handleCloseForm}
-        service={selectedService}
         currentCycleId={currentCycleId}
+        service={selectedService}
+      />
+
+      <DeleteConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+        title="Delete Service"
+        description="Are you sure you want to delete this service? This action cannot be undone."
+        isLoading={isDeleting}
       />
     </div>
   );

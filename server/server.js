@@ -92,9 +92,88 @@ db = new sqlite3.Database(path.join(dataDir, "sheets.db"), (err) => {
                 FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE CASCADE
             );`);
 
+            // Products table (Similar to services but without tip and without customer)
+            db.run(`CREATE TABLE IF NOT EXISTS products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                cycle_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                notes TEXT,
+                payments TEXT,
+                price REAL NOT NULL,
+                date TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE CASCADE
+            );`);
+
             // Drop obsolete tables if they exist
             db.run(`DROP TABLE IF EXISTS payment_sources`);
             db.run(`DROP TABLE IF EXISTS service_payment_sources`);
+            
+            // Check if products table has customer column and remove it if it exists
+            db.all(`PRAGMA table_info(products)`, [], (err, columns) => {
+                if (err) {
+                    console.error("Failed to inspect products table:", err);
+                    return;
+                }
+                
+                const hasCustomer = columns.some(col => col.name === "customer");
+                
+                if (hasCustomer) {
+                    console.log("Removing customer column from products table...");
+                    
+                    // SQLite doesn't support DROP COLUMN directly, so we need to:
+                    // 1. Create a new table without the customer column
+                    // 2. Copy data from old table to new table
+                    // 3. Drop old table
+                    // 4. Rename new table to original name
+                    
+                    db.serialize(() => {
+                        // Begin transaction for atomicity
+                        db.run("BEGIN TRANSACTION");
+                        
+                        // Create new table without customer column
+                        db.run(`CREATE TABLE products_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id INTEGER NOT NULL,
+                            cycle_id INTEGER NOT NULL,
+                            name TEXT NOT NULL,
+                            notes TEXT,
+                            payments TEXT,
+                            price REAL NOT NULL,
+                            date TEXT NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                            FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE CASCADE
+                        )`);
+                        
+                        // Copy data from old table to new table
+                        db.run(`INSERT INTO products_new 
+                            (id, user_id, cycle_id, name, notes, payments, price, date, created_at, updated_at)
+                            SELECT id, user_id, cycle_id, name, notes, payments, price, date, created_at, updated_at 
+                            FROM products`);
+                        
+                        // Drop old table
+                        db.run(`DROP TABLE products`);
+                        
+                        // Rename new table to original name
+                        db.run(`ALTER TABLE products_new RENAME TO products`);
+                        
+                        // Commit transaction
+                        db.run("COMMIT", (err) => {
+                            if (err) {
+                                console.error("Failed to migrate products table:", err);
+                                db.run("ROLLBACK");
+                            } else {
+                                console.log("Successfully removed customer column from products table");
+                            }
+                        });
+                    });
+                }
+            });
 
             // Ensure the customer column exists for existing databases
             db.all(`PRAGMA table_info(services)`, [], (err, columns) => {
@@ -248,18 +327,18 @@ app.get(
         SELECT 
             u.id as user_id,
             u.stylish,
-            SUM(s.price) as total_price,
-            SUM(COALESCE(s.tip, 0)) as total_tips,
-            COUNT(s.id) as service_count
-        FROM services s
-        JOIN users u ON s.user_id = u.id
-        JOIN cycles c ON s.cycle_id = c.id
-        WHERE c.id = ?
-        GROUP BY u.id, u.stylish
-        ORDER BY total_price DESC;
+            (SELECT SUM(s.price) FROM services s WHERE s.user_id = u.id AND s.cycle_id = ?) as total_service_price,
+            (SELECT SUM(COALESCE(s.tip, 0)) FROM services s WHERE s.user_id = u.id AND s.cycle_id = ?) as total_tips,
+            (SELECT COUNT(s.id) FROM services s WHERE s.user_id = u.id AND s.cycle_id = ?) as service_count,
+            (SELECT SUM(p.price) FROM products p WHERE p.user_id = u.id AND p.cycle_id = ?) as total_product_price,
+            (SELECT COUNT(p.id) FROM products p WHERE p.user_id = u.id AND p.cycle_id = ?) as product_count
+        FROM users u
+        WHERE EXISTS (SELECT 1 FROM services s WHERE s.user_id = u.id AND s.cycle_id = ?)
+           OR EXISTS (SELECT 1 FROM products p WHERE p.user_id = u.id AND p.cycle_id = ?)
+        ORDER BY (total_service_price + COALESCE(total_product_price, 0)) DESC;
     `;
 
-        db.all(query, [cycleId], (err, stats) => {
+        db.all(query, [cycleId, cycleId, cycleId, cycleId, cycleId, cycleId, cycleId], (err, stats) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
@@ -920,6 +999,412 @@ app.delete("/api/services/:serviceId", authenticateUser, (req, res) => {
     );
 });
 
+// --- Product Endpoints --- (Protected by authenticateUser)
+
+// GET products for a specific cycle
+app.get("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
+    const { cycleId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    // First, verify the cycle exists
+    db.get("SELECT id FROM cycles WHERE id = ?", [cycleId], (err, cycle) => {
+        if (err)
+            return res
+                .status(500)
+                .json({ error: "Error verifying cycle: " + err.message });
+        if (!cycle) return res.status(404).json({ error: "Cycle not found." });
+
+        let sqlQuery =
+            "SELECT id, name, notes, payments, price, date, cycle_id as cycleId, user_id as userId FROM products WHERE cycle_id = ?";
+        const queryParams = [cycleId];
+
+        // Admin can optionally filter by specific user via query param ?userId=123
+        if (userRole === "admin" && req.query.userId) {
+            sqlQuery += " AND user_id = ?";
+            queryParams.push(req.query.userId);
+        } else if (userRole !== "admin") {
+            // Regular users only see their own products
+            sqlQuery += " AND user_id = ?";
+            queryParams.push(userId);
+        }
+        sqlQuery += " ORDER BY date DESC";
+
+        db.all(sqlQuery, queryParams, (productErr, products) => {
+            if (productErr)
+                return res
+                    .status(500)
+                    .json({
+                        error: "Error fetching products: " + productErr.message,
+                    });
+
+            const processedProducts = (products || []).map((product) => {
+                let parsedPayments = [];
+                if (product.payments) {
+                    try {
+                        parsedPayments = JSON.parse(product.payments);
+                    } catch (e) {
+                        console.error(
+                            "Error parsing payments for product ID " +
+                                product.id +
+                                ":",
+                            e
+                        );
+                        // parsedPayments remains []
+                    }
+                }
+                return { ...product, payments: parsedPayments };
+            });
+            res.json(processedProducts);
+        });
+    });
+});
+
+// GET all products for the authenticated user
+app.get("/api/products", authenticateUser, (req, res) => {
+    const userId = req.user.id; // From authenticateUser middleware
+
+    db.all(
+        "SELECT id, name, notes, payments, price, date, cycle_id as cycleId, user_id as userId FROM products WHERE user_id = ? ORDER BY date DESC",
+        [userId],
+        (err, products) => {
+            if (err) {
+                return res
+                    .status(500)
+                    .json({ error: "Error fetching products: " + err.message });
+            }
+            products.forEach((product) => {
+                if (product.payments) {
+                    try {
+                        product.payments = JSON.parse(product.payments);
+                    } catch (e) {
+                        // Error parsing payments for product
+                        product.payments = []; // Default to empty array on parse error
+                    }
+                } else {
+                    product.payments = [];
+                }
+            });
+            res.json(products);
+        }
+    );
+});
+
+// GET a specific product by ID
+app.get("/api/products/:productId", authenticateUser, (req, res) => {
+    const { productId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    let sql = "SELECT id, name, notes, payments, price, date, cycle_id as cycleId, user_id as userId FROM products WHERE id = ?";
+    const params = [productId];
+    
+    // Regular users can only view their own products
+    if (userRole !== "admin") {
+        sql += " AND user_id = ?";
+        params.push(userId);
+    }
+
+    db.get(sql, params, (err, product) => {
+        if (err) {
+            return res.status(500).json({ error: "Error fetching product: " + err.message });
+        }
+        if (!product) {
+            return res.status(404).json({ error: "Product not found or not accessible." });
+        }
+
+        // Parse payments JSON
+        if (product.payments) {
+            try {
+                product.payments = JSON.parse(product.payments);
+            } catch (e) {
+                product.payments = [];
+            }
+        } else {
+            product.payments = [];
+        }
+
+        res.json(product);
+    });
+});
+
+// POST a new product to a specific cycle
+app.post("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
+    const { cycleId } = req.params;
+    const userId = req.user.id;
+    const { name, notes, payments, price, date } = req.body;
+
+    if (!name || price === undefined || !date) {
+        return res
+            .status(400)
+            .json({ error: "Missing required fields: name, price, date." });
+    }
+    if (isNaN(parseFloat(price)) || !isFinite(price)) {
+        return res.status(400).json({ error: "Price must be a valid number." });
+    }
+    // Validate date format (basic ISO 8601 check)
+    if (
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/.test(date) &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(date)
+    ) {
+        // Allow for optional Z, allow for optional milliseconds
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            // Also allow YYYY-MM-DD if time is not included by client
+            return res
+                .status(400)
+                .json({
+                    error: "Date must be a valid ISO 8601 string (e.g., YYYY-MM-DD or YYYY-MM-DDTHH:mm:ssZ).",
+                });
+        }
+    }
+
+    // Verify cycle exists before adding product
+    db.get("SELECT id FROM cycles WHERE id = ?", [cycleId], (err, cycle) => {
+        if (err)
+            return res
+                .status(500)
+                .json({ error: "Error verifying cycle: " + err.message });
+        if (!cycle)
+            return res
+                .status(404)
+                .json({ error: "Cycle not found. Cannot add product." });
+
+        // Determine payments JSON
+        let paymentsArray = payments;
+        if (!Array.isArray(paymentsArray) || paymentsArray.length === 0) {
+            paymentsArray = [{ method: "card", amount: parseFloat(price) }];
+        }
+        const paymentsJson = JSON.stringify(paymentsArray);
+
+        const sql = `INSERT INTO products (user_id, cycle_id, name, notes, payments, price, date) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+        db.run(
+            sql,
+            [
+                userId,
+                cycleId,
+                name,
+                notes || null,
+                paymentsJson,
+                parseFloat(price),
+                date,
+            ],
+            function (productErr) {
+                if (productErr)
+                    return res
+                        .status(500)
+                        .json({
+                            error:
+                                "Failed to add product: " + productErr.message,
+                        });
+                db.get(
+                    "SELECT id, name, notes, payments, price, date, cycle_id as cycleId, user_id as userId FROM products WHERE id = ?",
+                    [this.lastID],
+                    (getErr, newProduct) => {
+                        if (getErr || !newProduct)
+                            return res
+                                .status(500)
+                                .json({
+                                    error: "Failed to retrieve newly added product.",
+                                });
+                        newProduct.payments = newProduct.payments
+                            ? JSON.parse(newProduct.payments)
+                            : [];
+                        res.status(201).json(newProduct);
+                    }
+                );
+            }
+        );
+    });
+});
+
+// PUT (update) an existing product
+app.put("/api/products/:productId", authenticateUser, (req, res) => {
+    const { productId } = req.params;
+    const userId = req.user.id;
+    const { name, notes, payments, price, date, cycleId } = req.body; 
+
+    if (
+        !name &&
+        price === undefined &&
+        !date &&
+        !cycleId &&
+        !notes &&
+        !payments
+    ) {
+        return res.status(400).json({ error: "No update fields provided." });
+    }
+
+    // Validate fields if provided
+    if (price !== undefined && (isNaN(parseFloat(price)) || !isFinite(price))) {
+        return res.status(400).json({ error: "Price must be a valid number." });
+    }
+    if (
+        date !== undefined &&
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/.test(date) &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(date)
+    ) {
+        return res
+            .status(400)
+            .json({ error: "Date must be a valid ISO 8601 string." });
+    }
+
+    // First, check if the product exists and belongs to the user
+    db.get(
+        "SELECT id, name, notes, payments, price, date, cycle_id AS cycleId, user_id AS userId FROM products WHERE id = ? AND user_id = ?",
+        [productId, userId],
+        (err, product) => {
+            if (err)
+                return res
+                    .status(500)
+                    .json({ error: "Error finding product: " + err.message });
+            if (!product)
+                return res
+                    .status(404)
+                    .json({ error: "Product not found or not owned by user." });
+
+            // If cycleId is being changed, verify the new cycle exists
+            if (cycleId && cycleId !== product.cycleId) {
+                db.get(
+                    "SELECT id FROM cycles WHERE id = ?",
+                    [cycleId],
+                    (cycleErr, newCycle) => {
+                        if (cycleErr)
+                            return res
+                                .status(500)
+                                .json({
+                                    error:
+                                        "Error verifying new cycle: " +
+                                        cycleErr.message,
+                                });
+                        if (!newCycle)
+                            return res
+                                .status(400)
+                                .json({
+                                    error: "New cycleId provided does not exist.",
+                                });
+                        performProductUpdate(
+                            product,
+                            {
+                                name,
+                                notes,
+                                payments,
+                                price,
+                                date,
+                                cycleId,
+                            },
+                            res
+                        );
+                    }
+                );
+            } else {
+                performProductUpdate(
+                    product,
+                    {
+                        name,
+                        notes,
+                        payments,
+                        price,
+                        date,
+                        cycleId: cycleId || product.cycleId,
+                    },
+                    res
+                );
+            }
+        }
+    );
+});
+
+function performProductUpdate(currentProduct, updates, res) {
+    const newName =
+        updates.name !== undefined ? updates.name : currentProduct.name;
+    const newNotes =
+        updates.notes !== undefined ? updates.notes : currentProduct.notes;
+    const newPayments =
+        updates.payments !== undefined
+            ? JSON.stringify(updates.payments)
+            : currentProduct.payments;
+    const newPrice =
+        updates.price !== undefined
+            ? parseFloat(updates.price)
+            : currentProduct.price;
+    const newDate =
+        updates.date !== undefined ? updates.date : currentProduct.date;
+    const newCycleId =
+        updates.cycleId !== undefined
+            ? updates.cycleId
+            : currentProduct.cycleId || currentProduct.cycle_id;
+
+    const sql = `UPDATE products SET name = ?, notes = ?, payments = ?, price = ?, date = ?, cycle_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`;
+    const params = [
+        newName,
+        newNotes,
+        newPayments,
+        newPrice,
+        newDate,
+        newCycleId,
+        currentProduct.id,
+        currentProduct.userId || currentProduct.user_id,
+    ];
+    db.run(sql, params, function (err) {
+        if (err)
+            return res
+                .status(500)
+                .json({ error: "Failed to update product: " + err.message });
+        if (this.changes === 0)
+            return res
+                .status(404)
+                .json({
+                    error: "Product not found, not owned, or no effective changes made.",
+                });
+
+        db.get(
+            "SELECT id, name, notes, payments, price, date, cycle_id as cycleId, user_id as userId FROM products WHERE id = ?",
+            [currentProduct.id],
+            (getErr, updatedProduct) => {
+                if (getErr || !updatedProduct)
+                    return res
+                        .status(500)
+                        .json({ error: "Failed to retrieve updated product." });
+                if (updatedProduct && updatedProduct.payments) {
+                    updatedProduct.payments = JSON.parse(
+                        updatedProduct.payments
+                    );
+                }
+                res.json(updatedProduct);
+            }
+        );
+    });
+}
+
+// DELETE a product
+app.delete("/api/products/:productId", authenticateUser, (req, res) => {
+    const { productId } = req.params;
+    const userId = req.user.id;
+
+    db.run(
+        "DELETE FROM products WHERE id = ? AND user_id = ?",
+        [productId, userId],
+        function (err) {
+            if (err) {
+                return res
+                    .status(500)
+                    .json({
+                        error: "Failed to delete product: " + err.message,
+                    });
+            }
+            if (this.changes === 0) {
+                return res
+                    .status(404)
+                    .json({ error: "Product not found or not owned by user." });
+            }
+            res.status(200).json({
+                success: true,
+                message: "Product deleted successfully.",
+            });
+        }
+    );
+});
+
 // --- Server Start ---
 nextApp
     .prepare()
@@ -958,6 +1443,13 @@ process.on("SIGTERM", gracefulShutdown);
 process.on("SIGINT", gracefulShutdown);
 process.on("unhandledRejection", (reason, promise) => {
     // Unhandled rejection
-    // Optionally, close server and exit
-    // gracefulShutdown();
+    console.log(`Unhandled Rejection at:`, promise, `reason:`, reason);
+});
+
+nextApp.prepare().then(() => {
+    // Handle all other requests with Next.js
+    app.all("*", (req, res) => handle(req, res));
+    app.listen(port, () => {
+        // API server started
+    });
 });

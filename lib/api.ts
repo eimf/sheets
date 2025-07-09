@@ -34,11 +34,12 @@ export interface Cycle {
 
 export interface CycleStats {
     user_id: string;
-
     stylish: string;
-    total_price: number;
+    total_service_price: number;
+    total_product_price: number;
     total_tips: number;
     service_count: number;
+    product_count: number;
 }
 
 export interface NewCycle {
@@ -77,6 +78,28 @@ export interface PaymentDetail {
     label?: string;
 }
 
+export interface Product {
+    id: string;
+    name: string;
+    customer?: string;
+    notes?: string;
+    payments?: PaymentDetail[];
+    price: number;
+    date: string;
+    cycleId: string;
+    userId: string;
+}
+
+export interface NewProduct {
+    name: string;
+    customer?: string;
+    notes?: string;
+    payments?: PaymentDetail[];
+    price: number;
+    date: string;
+    cycleId: string;
+}
+
 // --- Base Query Setup ---
 const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
 const baseQuery = fetchBaseQuery({
@@ -97,7 +120,7 @@ const baseQuery = fetchBaseQuery({
 export const apiSlice = createApi({
     reducerPath: 'api',
     baseQuery,
-    tagTypes: ['User', 'Cycle', 'Service'],
+    tagTypes: ['User', 'Cycle', 'Service', 'Product'],
     endpoints: (builder) => ({
         // Auth endpoints
         login: builder.mutation<AuthResponse, LoginRequest>({
@@ -207,6 +230,50 @@ export const apiSlice = createApi({
             }),
             invalidatesTags: ['Service', 'Cycle'],
         }),
+        
+        // Product endpoints
+        getProductsForUser: builder.query<Product[], { cycleId: string; userId: string }>({  
+            query: ({ cycleId, userId }) => `/cycles/${cycleId}/products?userId=${userId}`,
+        }),
+        getProducts: builder.query<Product[], string | void>({
+            query: (cycleId) => ({
+                url: cycleId ? `/cycles/${cycleId}/products` : '/products'
+            }),
+            providesTags: (result) =>
+                result
+                    ? [...result.map(({ id }) => ({ type: 'Product' as const, id })), 'Product']
+                    : ['Product']
+        }),
+        getProduct: builder.query<Product, string>({
+            query: (id) => `/products/${id}`,
+            providesTags: (result, error, id) => [{ type: 'Product', id }],
+        }),
+        createProduct: builder.mutation<Product, Omit<NewProduct, 'cycleId'> & { cycleId: string }>({  
+            query: ({ cycleId, ...product }) => ({
+                url: `/cycles/${cycleId}/products`,
+                method: 'POST',
+                body: product,
+            }),
+            invalidatesTags: ['Product', 'Cycle'],
+        }),
+        updateProduct: builder.mutation<Product, Partial<Product> & Pick<Product, 'id'>>({  
+            query: ({ id, ...updates }) => ({
+                url: `/products/${id}`,
+                method: 'PUT',
+                body: updates,
+            }),
+            invalidatesTags: (result, error, { id }) => [
+                { type: 'Product', id },
+                'Cycle',
+            ],
+        }),
+        deleteProduct: builder.mutation<void, string>({  
+            query: (id) => ({
+                url: `/products/${id}`,
+                method: 'DELETE',
+            }),
+            invalidatesTags: ['Product', 'Cycle'],
+        }),
     }),
 });
 
@@ -232,4 +299,11 @@ export const {
     useCreateServiceMutation,
     useUpdateServiceMutation,
     useDeleteServiceMutation,
+    // Products
+    useGetProductsForUserQuery,
+    useGetProductsQuery,
+    useGetProductQuery,
+    useCreateProductMutation,
+    useUpdateProductMutation,
+    useDeleteProductMutation,
 } = apiSlice;

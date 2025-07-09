@@ -6,6 +6,7 @@ import { useAppSelector } from "@/lib/hooks";
 import Header from "@/components/dashboard/Header";
 import { useState } from "react";
 import ServicesList from "@/components/dashboard/ServicesList";
+import ProductsList from "@/components/dashboard/ProductsList";
 import CycleManager from "@/components/dashboard/CycleManager";
 
 export default function DashboardPage() {
@@ -42,7 +43,10 @@ export default function DashboardPage() {
                         showCreateButton={false}
                     />
                     {currentCycleId && (
-                        <ServicesList currentCycleId={currentCycleId} />
+                        <div className="space-y-8">
+                            <ServicesList currentCycleId={currentCycleId} />
+                            <ProductsList currentCycleId={currentCycleId} />
+                        </div>
                     )}
                 </div>
             </main>

@@ -186,6 +186,9 @@ export const apiSlice = createApi({
         getCycleStats: builder.query<CycleStats[], string>({
             query: (cycleId) => `/admin/cycles/${cycleId}/stats`,
         }),
+        getUserCycleStats: builder.query<CycleStats[], string>({
+            query: (cycleId) => `/cycles/${cycleId}/stats`,
+        }),
         
         // Service endpoints
         getServicesForUser: builder.query<Service[], { cycleId: string; userId: string }>({
@@ -292,6 +295,7 @@ export const {
     // Admin
     useGetAdminCyclesQuery,
     useGetCycleStatsQuery,
+    useGetUserCycleStatsQuery,
     useGetServicesForUserQuery,
     // Services
     useGetServicesQuery,

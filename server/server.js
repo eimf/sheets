@@ -327,21 +327,55 @@ app.get(
         SELECT 
             u.id as user_id,
             u.stylish,
-            (SELECT SUM(s.price) FROM services s WHERE s.user_id = u.id AND s.cycle_id = ?) as total_service_price,
-            (SELECT SUM(COALESCE(s.tip, 0)) FROM services s WHERE s.user_id = u.id AND s.cycle_id = ?) as total_tips,
-            (SELECT COUNT(s.id) FROM services s WHERE s.user_id = u.id AND s.cycle_id = ?) as service_count,
-            (SELECT SUM(p.price) FROM products p WHERE p.user_id = u.id AND p.cycle_id = ?) as total_product_price,
+            COALESCE(SUM(s.price), 0) as total_service_price,
+            COALESCE(SUM(s.tip), 0) as total_tips,
+            COUNT(s.id) as service_count,
+            (SELECT COALESCE(SUM(p.price), 0) FROM products p WHERE p.user_id = u.id AND p.cycle_id = ?) as total_product_price,
             (SELECT COUNT(p.id) FROM products p WHERE p.user_id = u.id AND p.cycle_id = ?) as product_count
         FROM users u
-        WHERE EXISTS (SELECT 1 FROM services s WHERE s.user_id = u.id AND s.cycle_id = ?)
-           OR EXISTS (SELECT 1 FROM products p WHERE p.user_id = u.id AND p.cycle_id = ?)
+        LEFT JOIN services s ON u.id = s.user_id AND s.cycle_id = ?
+        GROUP BY u.id
         ORDER BY (total_service_price + COALESCE(total_product_price, 0)) DESC;
     `;
 
-        db.all(query, [cycleId, cycleId, cycleId, cycleId, cycleId, cycleId, cycleId], (err, stats) => {
+        db.all(query, [cycleId, cycleId, cycleId], (err, stats) => {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
+            res.json(stats);
+        });
+    }
+);
+
+// User stats endpoint (non-admin, filtered to current user only)
+app.get(
+    "/api/cycles/:cycleId/stats",
+    authenticateUser,
+    (req, res) => {
+        const { cycleId } = req.params;
+        const userId = req.user.id;
+
+        const query = `
+        SELECT 
+            u.id as user_id, 
+            u.stylish, 
+            COALESCE(SUM(s.price), 0) as total_service_price, 
+            COALESCE(SUM(s.tip), 0) as total_tips, 
+            COUNT(s.id) as service_count,
+            (SELECT COALESCE(SUM(p.price), 0) FROM products p WHERE p.user_id = u.id AND p.cycle_id = ?) as total_product_price,
+            (SELECT COUNT(p.id) FROM products p WHERE p.user_id = u.id AND p.cycle_id = ?) as product_count
+        FROM users u
+        LEFT JOIN services s ON u.id = s.user_id AND s.cycle_id = ?
+        WHERE u.id = ?
+        GROUP BY u.id
+        ORDER BY (total_service_price + COALESCE(total_product_price, 0)) DESC;
+    `;
+
+        db.all(query, [cycleId, cycleId, cycleId, userId], (err, stats) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+
             res.json(stats);
         });
     }
@@ -617,6 +651,7 @@ app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role; // Assuming 'role' is available on req.user
+    console.log(`[DEBUG] Fetching services for cycle=${cycleId}, user=${userId}, role=${userRole}`)
 
     // First, verify the cycle exists
     db.get("SELECT id FROM cycles WHERE id = ?", [cycleId], (err, cycle) => {
@@ -666,6 +701,17 @@ app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
                 }
                 return { ...service, payments: parsedPayments };
             });
+
+            console.log(`[DEBUG] Found ${processedServices.length} services for cycle=${cycleId}, user=${userId}`);
+            if (processedServices.length === 0) {
+                // Check if any services exist at all to help debugging
+                db.get("SELECT COUNT(*) as count FROM services", [], (countErr, result) => {
+                    if (!countErr) {
+                        console.log(`[DEBUG] Total services in database: ${result.count}`);
+                    }
+                });
+            }
+
             res.json(processedServices);
         });
     });
@@ -793,6 +839,109 @@ app.post("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
 });
 
 // PUT (update) an existing service
+// Add PATCH endpoint to handle frontend requests
+app.patch("/api/services/:serviceId", authenticateUser, (req, res) => {
+    const { serviceId } = req.params;
+    const userId = req.user.id;
+    const { name, customer, notes, payments, price, tip, date, cycleId } =
+        req.body; // cycleId can be changed
+
+    if (
+        !name &&
+        price === undefined &&
+        !date &&
+        !cycleId &&
+        !customer &&
+        !notes &&
+        !payments
+    ) {
+        return res.status(400).json({ error: "No update fields provided." });
+    }
+
+    // Validate fields if provided
+    if (price !== undefined && (isNaN(parseFloat(price)) || !isFinite(price))) {
+        return res.status(400).json({ error: "Price must be a valid number." });
+    }
+    if (
+        date !== undefined &&
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/.test(date) &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(date)
+    ) {
+        return res
+            .status(400)
+            .json({ error: "Date must be a valid ISO 8601 string." });
+    }
+
+    // First, check if the service exists and belongs to the user
+    db.get(
+        "SELECT id, name, customer, notes, payments, price, tip, date, cycle_id AS cycleId, user_id AS userId FROM services WHERE id = ? AND user_id = ?",
+        [serviceId, userId],
+        (err, service) => {
+            if (err)
+                return res
+                    .status(500)
+                    .json({ error: "Error finding service: " + err.message });
+            if (!service)
+                return res
+                    .status(404)
+                    .json({ error: "Service not found or not owned by user." });
+
+            // If cycleId is being changed, verify the new cycle exists
+            if (cycleId && cycleId !== service.cycleId) {
+                db.get(
+                    "SELECT id FROM cycles WHERE id = ?",
+                    [cycleId],
+                    (cycleErr, newCycle) => {
+                        if (cycleErr)
+                            return res
+                                .status(500)
+                                .json({
+                                    error:
+                                        "Error verifying new cycle: " +
+                                        cycleErr.message,
+                                });
+                        if (!newCycle)
+                            return res
+                                .status(400)
+                                .json({
+                                    error: "New cycleId provided does not exist.",
+                                });
+                        performServiceUpdate(
+                            service,
+                            {
+                                name,
+                                customer,
+                                notes,
+                                payments,
+                                price,
+                                tip,
+                                date,
+                                cycleId,
+                            },
+                            res
+                        );
+                    }
+                );
+            } else {
+                performServiceUpdate(
+                    service,
+                    {
+                        name,
+                        customer,
+                        notes,
+                        payments,
+                        price,
+                        tip,
+                        date,
+                        cycleId: cycleId || service.cycleId,
+                    },
+                    res
+                );
+            }
+        }
+    );
+});
+
 app.put("/api/services/:serviceId", authenticateUser, (req, res) => {
     const { serviceId } = req.params;
     const userId = req.user.id;
@@ -1006,6 +1155,7 @@ app.get("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role;
+    console.log(`[DEBUG] Fetching products for cycle=${cycleId}, user=${userId}, role=${userRole}`)
 
     // First, verify the cycle exists
     db.get("SELECT id FROM cycles WHERE id = ?", [cycleId], (err, cycle) => {
@@ -1055,6 +1205,17 @@ app.get("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
                 }
                 return { ...product, payments: parsedPayments };
             });
+
+            console.log(`[DEBUG] Found ${processedProducts.length} products for cycle=${cycleId}, user=${userId}`);
+            if (processedProducts.length === 0) {
+                // Check if any products exist at all to help debugging
+                db.get("SELECT COUNT(*) as count FROM products", [], (countErr, result) => {
+                    if (!countErr) {
+                        console.log(`[DEBUG] Total products in database: ${result.count}`);
+                    }
+                });
+            }
+
             res.json(processedProducts);
         });
     });

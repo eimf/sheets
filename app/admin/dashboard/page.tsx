@@ -79,7 +79,7 @@ export default function AdminDashboardPage() {
                         <CycleManager
                             currentCycleId={currentCycleId}
                             onCycleChange={setCurrentCycleId}
-                            showCreateButton={false}
+                            showCreateButton={true}
                         />
                         
                         {isLoadingStats && currentCycleId && (

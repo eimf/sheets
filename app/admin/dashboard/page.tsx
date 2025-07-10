@@ -104,7 +104,9 @@ export default function AdminDashboardPage() {
                                         </tr>
                                     </thead>
                                     <tbody className="bg-white divide-y divide-gray-200">
-                                        {cycleStats.map((stat: CycleStats) => (
+                                        {cycleStats
+                                            .filter((stat: CycleStats) => stat.service_count > 0 || stat.product_count > 0)
+                                            .map((stat: CycleStats) => (
                                             <tr key={stat.user_id} className="cursor-pointer hover:bg-gray-100" onClick={() => setSelectedStylist({ id: String(stat.user_id), name: stat.stylish })}>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                     {stat.stylish}

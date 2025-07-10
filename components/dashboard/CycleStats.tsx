@@ -47,6 +47,6 @@ export default function CycleStats({ cycleId }: CycleStatsProps) {
 
   const totalEarnings = totalServiceEarnings + totalTips + totalProductEarnings;
 
-  // Cards have been removed as requested
-  return null;
+  // Return an empty container instead of null to maintain consistent hook execution
+  return <div className="hidden"></div>;
 }

@@ -651,7 +651,7 @@ app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role; // Assuming 'role' is available on req.user
-    console.log(`[DEBUG] Fetching services for cycle=${cycleId}, user=${userId}, role=${userRole}`)
+    // Service fetch
 
     // First, verify the cycle exists
     db.get("SELECT id FROM cycles WHERE id = ?", [cycleId], (err, cycle) => {
@@ -702,12 +702,12 @@ app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
                 return { ...service, payments: parsedPayments };
             });
 
-            console.log(`[DEBUG] Found ${processedServices.length} services for cycle=${cycleId}, user=${userId}`);
+            // Service result
             if (processedServices.length === 0) {
                 // Check if any services exist at all to help debugging
                 db.get("SELECT COUNT(*) as count FROM services", [], (countErr, result) => {
                     if (!countErr) {
-                        console.log(`[DEBUG] Total services in database: ${result.count}`);
+                        // Total services count
                     }
                 });
             }
@@ -1155,7 +1155,7 @@ app.get("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role;
-    console.log(`[DEBUG] Fetching products for cycle=${cycleId}, user=${userId}, role=${userRole}`)
+    // Product fetch
 
     // First, verify the cycle exists
     db.get("SELECT id FROM cycles WHERE id = ?", [cycleId], (err, cycle) => {
@@ -1206,12 +1206,12 @@ app.get("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
                 return { ...product, payments: parsedPayments };
             });
 
-            console.log(`[DEBUG] Found ${processedProducts.length} products for cycle=${cycleId}, user=${userId}`);
+            // Product result
             if (processedProducts.length === 0) {
                 // Check if any products exist at all to help debugging
                 db.get("SELECT COUNT(*) as count FROM products", [], (countErr, result) => {
                     if (!countErr) {
-                        console.log(`[DEBUG] Total products in database: ${result.count}`);
+                        // Total products count
                     }
                 });
             }

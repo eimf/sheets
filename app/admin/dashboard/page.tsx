@@ -207,6 +207,40 @@ export default function AdminDashboardPage() {
                                                         )}
                                                     </Fragment>
                                                 ))}
+                                                {/* Payment method breakdown for services */}
+                                                {stylistServices.length > 0 && (
+                                                    <tr className="bg-gray-100">
+                                                        <td colSpan={5} className="px-4 py-4 text-sm">
+                                                            <div>
+                                                                <h4 className="font-semibold text-gray-700 mb-2">Payment Method Breakdown:</h4>
+                                                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+                                                                    {(() => {
+                                                                        // Calculate totals by payment method
+                                                                        const methodTotals = stylistServices.reduce((totals, svc) => {
+                                                                            if (svc.payments && svc.payments.length > 0) {
+                                                                                svc.payments.forEach(p => {
+                                                                                    if (!totals[p.method]) {
+                                                                                        totals[p.method] = 0;
+                                                                                    }
+                                                                                    totals[p.method] += p.amount;
+                                                                                });
+                                                                            }
+                                                                            return totals;
+                                                                        }, {} as Record<string, number>);
+
+                                                                        // Display each payment method total
+                                                                        return Object.entries(methodTotals).map(([method, total]) => (
+                                                                            <div key={method} className="flex items-center space-x-2">
+                                                                                <span className="font-medium capitalize">{method}:</span>
+                                                                                <span>${total.toFixed(2)}</span>
+                                                                            </div>
+                                                                        ));
+                                                                    })()} 
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
@@ -279,6 +313,40 @@ export default function AdminDashboardPage() {
                                                          )}
                                                      </Fragment>
                                                  ))}
+                                                  {/* Payment method breakdown for products */}
+                                                  {stylistProducts.length > 0 && (
+                                                      <tr className="bg-gray-100">
+                                                          <td colSpan={3} className="px-4 py-4 text-sm">
+                                                              <div>
+                                                                  <h4 className="font-semibold text-gray-700 mb-2">Payment Method Breakdown:</h4>
+                                                                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+                                                                      {(() => {
+                                                                          // Calculate totals by payment method
+                                                                          const methodTotals = stylistProducts.reduce((totals, product) => {
+                                                                              if (product.payments && product.payments.length > 0) {
+                                                                                  product.payments.forEach(p => {
+                                                                                      if (!totals[p.method]) {
+                                                                                          totals[p.method] = 0;
+                                                                                      }
+                                                                                      totals[p.method] += p.amount;
+                                                                                  });
+                                                                              }
+                                                                              return totals;
+                                                                          }, {} as Record<string, number>);
+
+                                                                          // Display each payment method total
+                                                                          return Object.entries(methodTotals).map(([method, total]) => (
+                                                                              <div key={method} className="flex items-center space-x-2">
+                                                                                  <span className="font-medium capitalize">{method}:</span>
+                                                                                  <span>${total.toFixed(2)}</span>
+                                                                              </div>
+                                                                          ));
+                                                                      })()} 
+                                                                  </div>
+                                                              </div>
+                                                          </td>
+                                                      </tr>
+                                                  )}
                                              </tbody>
                                          </table>
                                      </div>

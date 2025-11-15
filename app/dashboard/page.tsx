@@ -15,7 +15,23 @@ export default function DashboardPage() {
     const { isAuthenticated, user, loading } = useAppSelector(
         (state) => state.auth
     );
-    const [currentCycleId, setCurrentCycleId] = useState<string | null>(null);
+
+    // Persist cycle selection in localStorage to survive Fast Refresh
+    const [currentCycleId, setCurrentCycleId] = useState<string | null>(() => {
+        if (typeof window !== "undefined") {
+            return localStorage.getItem("user_selected_cycle_id");
+        }
+        return null;
+    });
+
+    // Save cycle selection to localStorage whenever it changes
+    useEffect(() => {
+        if (currentCycleId) {
+            localStorage.setItem("user_selected_cycle_id", currentCycleId);
+        } else {
+            localStorage.removeItem("user_selected_cycle_id");
+        }
+    }, [currentCycleId]);
 
     useEffect(() => {
         if (!loading && !isAuthenticated) {
@@ -25,6 +41,13 @@ export default function DashboardPage() {
         }
     }, [isAuthenticated, loading, router, user]);
 
+    // Add debugging to track cycle ID changes
+    useEffect(() => {
+        console.log(
+            `[DEBUG] Dashboard - Current cycle ID changed to: ${currentCycleId}`
+        );
+    }, [currentCycleId]);
+
     if (loading || !isAuthenticated || user?.role === "admin") {
         return (
             <div className="flex items-center justify-center h-screen">
@@ -32,11 +55,6 @@ export default function DashboardPage() {
             </div>
         );
     }
-
-    // Add debugging to track cycle ID changes
-    useEffect(() => {
-        console.log(`[DEBUG] Dashboard - Current cycle ID changed to: ${currentCycleId}`);
-    }, [currentCycleId]);
 
     return (
         <div className="flex flex-col min-h-screen bg-gradient-to-br from-gray-50 via-white to-indigo-50">

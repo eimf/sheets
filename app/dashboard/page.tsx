@@ -9,6 +9,7 @@ import ServicesList from "@/components/dashboard/ServicesList";
 import ProductsList from "@/components/dashboard/ProductsList";
 import CycleManager from "@/components/dashboard/CycleManager";
 import CycleStats from "@/components/dashboard/CycleStats";
+import CheckInOutSection from "@/components/dashboard/CheckInOutSection";
 
 export default function DashboardPage() {
     const router = useRouter();
@@ -50,6 +51,10 @@ export default function DashboardPage() {
                     />
                     {currentCycleId && (
                         <div className="space-y-8">
+                            {/* Only display check-in section for hourly employees */}
+                            {user?.role === 'hourly' && (
+                                <CheckInOutSection />
+                            )}
                             <CycleStats cycleId={currentCycleId} />
                             <ServicesList currentCycleId={currentCycleId} />
                             <ProductsList currentCycleId={currentCycleId} />

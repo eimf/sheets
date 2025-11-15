@@ -107,6 +107,33 @@ db = new sqlite3.Database(path.join(dataDir, "sheets.db"), (err) => {
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE CASCADE
             );`);
+            
+            // Locations table for check-in points
+            db.run(`CREATE TABLE IF NOT EXISTS locations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                radius INTEGER NOT NULL, -- Radius in meters
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );`);
+            
+            // Check-ins table for tracking hourly employee check-ins/outs
+            db.run(`CREATE TABLE IF NOT EXISTS check_ins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                cycle_id INTEGER NOT NULL,
+                location_id INTEGER NOT NULL,
+                check_in_time TIMESTAMP,
+                check_out_time TIMESTAMP,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE CASCADE,
+                FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE
+            );`);
 
             // Drop obsolete tables if they exist
             db.run(`DROP TABLE IF EXISTS payment_sources`);
@@ -1542,25 +1569,418 @@ app.delete("/api/products/:productId", authenticateUser, (req, res) => {
     const { productId } = req.params;
     const userId = req.user.id;
 
+    db.get(
+        "SELECT * FROM products WHERE id = ?",
+        [productId],
+        (err, product) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            if (!product) {
+                return res.status(404).json({ error: "Product not found" });
+            }
+
+            // Check if the product belongs to the user
+            if (product.user_id !== userId && req.user.role !== 'admin') {
+                return res.status(403).json({ error: "Unauthorized" });
+            }
+
+            db.run("DELETE FROM products WHERE id = ?", [productId], function (err) {
+                if (err) {
+                    return res.status(500).json({ error: err.message });
+                }
+                return res.json({ message: "Product deleted" });
+            });
+        }
+    );
+});
+
+// --- Location Management (Admin Only) ---
+// Get all locations
+app.get("/api/locations", authenticateUser, (req, res) => {
+    db.all("SELECT * FROM locations ORDER BY name", [], (err, locations) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(locations);
+    });
+});
+
+// Get a single location
+app.get("/api/locations/:locationId", authenticateUser, (req, res) => {
+    const { locationId } = req.params;
+    
+    db.get("SELECT * FROM locations WHERE id = ?", [locationId], (err, location) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!location) {
+            return res.status(404).json({ error: "Location not found" });
+        }
+        res.json(location);
+    });
+});
+
+// Create new location (admin only)
+app.post("/api/locations", authenticateUser, requireAdmin, (req, res) => {
+    const { name, latitude, longitude, radius } = req.body;
+    
+    if (!name || !latitude || !longitude || !radius) {
+        return res.status(400).json({ 
+            error: "Name, latitude, longitude, and radius are required" 
+        });
+    }
+    
     db.run(
-        "DELETE FROM products WHERE id = ? AND user_id = ?",
-        [productId, userId],
+        `INSERT INTO locations (name, latitude, longitude, radius) 
+         VALUES (?, ?, ?, ?)`,
+        [name, latitude, longitude, radius],
         function (err) {
             if (err) {
-                return res
-                    .status(500)
-                    .json({
-                        error: "Failed to delete product: " + err.message,
-                    });
+                return res.status(500).json({ error: err.message });
             }
+            
+            db.get("SELECT * FROM locations WHERE id = ?", [this.lastID], (err, location) => {
+                if (err) {
+                    return res.status(500).json({ error: err.message });
+                }
+                res.status(201).json(location);
+            });
+        }
+    );
+});
+
+// Update a location (admin only)
+app.put("/api/locations/:locationId", authenticateUser, requireAdmin, (req, res) => {
+    const { locationId } = req.params;
+    const { name, latitude, longitude, radius } = req.body;
+    
+    if (!name || !latitude || !longitude || !radius) {
+        return res.status(400).json({ 
+            error: "Name, latitude, longitude, and radius are required" 
+        });
+    }
+    
+    db.run(
+        `UPDATE locations 
+         SET name = ?, latitude = ?, longitude = ?, radius = ?, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = ?`,
+        [name, latitude, longitude, radius, locationId],
+        function (err) {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
             if (this.changes === 0) {
-                return res
-                    .status(404)
-                    .json({ error: "Product not found or not owned by user." });
+                return res.status(404).json({ error: "Location not found" });
             }
-            res.status(200).json({
-                success: true,
-                message: "Product deleted successfully.",
+            
+            db.get("SELECT * FROM locations WHERE id = ?", [locationId], (err, location) => {
+                if (err) {
+                    return res.status(500).json({ error: err.message });
+                }
+                res.json(location);
+            });
+        }
+    );
+});
+
+// Delete a location (admin only)
+app.delete("/api/locations/:locationId", authenticateUser, requireAdmin, (req, res) => {
+    const { locationId } = req.params;
+    
+    db.run("DELETE FROM locations WHERE id = ?", [locationId], function (err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        
+        if (this.changes === 0) {
+            return res.status(404).json({ error: "Location not found" });
+        }
+        
+        res.json({ message: "Location deleted successfully" });
+    });
+});
+
+// --- Check-in Management (Hourly role) ---
+// Calculate distance between two points using Haversine formula
+function getDistanceFromLatLonInM(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // Earth's radius in meters
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a = 
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in meters
+}
+
+function deg2rad(deg) {
+    return deg * (Math.PI / 180);
+}
+
+// Check if user can check in at this location
+function isWithinLocationRadius(userLat, userLon, locationLat, locationLon, radius) {
+    const distance = getDistanceFromLatLonInM(userLat, userLon, locationLat, locationLon);
+    return distance <= radius;
+}
+
+// Middleware to check if user has hourly role
+function requireHourlyUser(req, res, next) {
+    if (req.user && (req.user.role === "hourly" || req.user.role === "admin")) {
+        next();
+    } else {
+        res.status(403).json({ error: "Access restricted to hourly employees" });
+    }
+}
+
+// Get all check-ins for the current user
+app.get("/api/check-ins", authenticateUser, (req, res) => {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const cycleId = req.query.cycleId;
+    
+    let query;
+    let params;
+    
+    if (userRole === "admin") {
+        if (cycleId) {
+            query = `
+                SELECT c.*, u.stylish as user_name, l.name as location_name 
+                FROM check_ins c
+                JOIN users u ON c.user_id = u.id
+                JOIN locations l ON c.location_id = l.id
+                WHERE c.cycle_id = ?
+                ORDER BY c.check_in_time DESC
+            `;
+            params = [cycleId];
+        } else {
+            query = `
+                SELECT c.*, u.stylish as user_name, l.name as location_name 
+                FROM check_ins c
+                JOIN users u ON c.user_id = u.id
+                JOIN locations l ON c.location_id = l.id
+                ORDER BY c.check_in_time DESC
+            `;
+            params = [];
+        }
+    } else {
+        if (cycleId) {
+            query = `
+                SELECT c.*, u.stylish as user_name, l.name as location_name 
+                FROM check_ins c
+                JOIN users u ON c.user_id = u.id
+                JOIN locations l ON c.location_id = l.id
+                WHERE c.user_id = ? AND c.cycle_id = ?
+                ORDER BY c.check_in_time DESC
+            `;
+            params = [userId, cycleId];
+        } else {
+            query = `
+                SELECT c.*, u.stylish as user_name, l.name as location_name 
+                FROM check_ins c
+                JOIN users u ON c.user_id = u.id
+                JOIN locations l ON c.location_id = l.id
+                WHERE c.user_id = ?
+                ORDER BY c.check_in_time DESC
+            `;
+            params = [userId];
+        }
+    }
+    
+    db.all(query, params, (err, checkIns) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(checkIns);
+    });
+});
+
+// Check-in endpoint
+app.post("/api/check-ins", authenticateUser, requireHourlyUser, (req, res) => {
+    const userId = req.user.id;
+    const { cycleId, locationId, latitude, longitude, notes } = req.body;
+    
+    if (!cycleId || !locationId || !latitude || !longitude) {
+        return res.status(400).json({ 
+            error: "Cycle ID, location ID, latitude, and longitude are required" 
+        });
+    }
+    
+    // Check if there's already an open check-in
+    db.get(
+        `SELECT * FROM check_ins 
+         WHERE user_id = ? AND check_out_time IS NULL 
+         ORDER BY check_in_time DESC LIMIT 1`,
+        [userId],
+        (err, existingCheckIn) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            if (existingCheckIn) {
+                return res.status(400).json({ 
+                    error: "You already have an open check-in. Please check out first." 
+                });
+            }
+            
+            // Get location details
+            db.get("SELECT * FROM locations WHERE id = ?", [locationId], (err, location) => {
+                if (err) {
+                    return res.status(500).json({ error: err.message });
+                }
+                
+                if (!location) {
+                    return res.status(404).json({ error: "Location not found" });
+                }
+                
+                // Check if user is within the location radius
+                if (!isWithinLocationRadius(
+                    latitude, 
+                    longitude, 
+                    location.latitude, 
+                    location.longitude, 
+                    location.radius
+                )) {
+                    return res.status(403).json({ 
+                        error: "You are not within range of this location" 
+                    });
+                }
+                
+                // Create check-in
+                const now = new Date().toISOString();
+                db.run(
+                    `INSERT INTO check_ins 
+                     (user_id, cycle_id, location_id, check_in_time, notes) 
+                     VALUES (?, ?, ?, ?, ?)`,
+                    [userId, cycleId, locationId, now, notes || null],
+                    function (err) {
+                        if (err) {
+                            return res.status(500).json({ error: err.message });
+                        }
+                        
+                        db.get(
+                            "SELECT * FROM check_ins WHERE id = ?", 
+                            [this.lastID], 
+                            (err, checkIn) => {
+                                if (err) {
+                                    return res.status(500).json({ error: err.message });
+                                }
+                                res.status(201).json(checkIn);
+                            }
+                        );
+                    }
+                );
+            });
+        }
+    );
+});
+
+// Check-out endpoint
+app.put("/api/check-ins/:checkInId/checkout", authenticateUser, requireHourlyUser, (req, res) => {
+    const userId = req.user.id;
+    const { checkInId } = req.params;
+    const { latitude, longitude, notes } = req.body;
+    
+    if (!latitude || !longitude) {
+        return res.status(400).json({ 
+            error: "Latitude and longitude are required" 
+        });
+    }
+    
+    // Get the check-in
+    db.get(
+        "SELECT c.*, l.latitude, l.longitude, l.radius FROM check_ins c JOIN locations l ON c.location_id = l.id WHERE c.id = ?",
+        [checkInId],
+        (err, checkIn) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            if (!checkIn) {
+                return res.status(404).json({ error: "Check-in not found" });
+            }
+            
+            // Check if the check-in belongs to the user
+            if (checkIn.user_id !== userId && req.user.role !== 'admin') {
+                return res.status(403).json({ error: "Unauthorized" });
+            }
+            
+            // Check if already checked out
+            if (checkIn.check_out_time) {
+                return res.status(400).json({ 
+                    error: "This check-in is already closed" 
+                });
+            }
+            
+            // Check if user is within the location radius
+            if (!isWithinLocationRadius(
+                latitude, 
+                longitude, 
+                checkIn.latitude, 
+                checkIn.longitude, 
+                checkIn.radius
+            )) {
+                return res.status(403).json({ 
+                    error: "You are not within range of this location" 
+                });
+            }
+            
+            // Update check-in with checkout time
+            const now = new Date().toISOString();
+            let updatedNotes = checkIn.notes;
+            if (notes) {
+                updatedNotes = checkIn.notes 
+                    ? `${checkIn.notes}\n---\nCheckout: ${notes}` 
+                    : `Checkout: ${notes}`;
+            }
+            
+            db.run(
+                `UPDATE check_ins 
+                 SET check_out_time = ?, notes = ?, updated_at = CURRENT_TIMESTAMP 
+                 WHERE id = ?`,
+                [now, updatedNotes, checkInId],
+                function (err) {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    
+                    db.get("SELECT * FROM check_ins WHERE id = ?", [checkInId], (err, updatedCheckIn) => {
+                        if (err) {
+                            return res.status(500).json({ error: err.message });
+                        }
+                        res.json(updatedCheckIn);
+                    });
+                }
+            );
+        }
+    );
+});
+
+// Get current check-in status for user
+app.get("/api/check-ins/status", authenticateUser, requireHourlyUser, (req, res) => {
+    const userId = req.user.id;
+    
+    db.get(
+        `SELECT c.*, l.name as location_name 
+         FROM check_ins c 
+         JOIN locations l ON c.location_id = l.id 
+         WHERE c.user_id = ? AND c.check_out_time IS NULL 
+         ORDER BY c.check_in_time DESC LIMIT 1`,
+        [userId],
+        (err, checkIn) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            
+            if (!checkIn) {
+                return res.json({ active: false });
+            }
+            
+            res.json({
+                active: true,
+                checkIn
             });
         }
     );

@@ -3,6 +3,7 @@
 import { useForm, useFieldArray, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useAppSelector } from "@/lib/hooks";
 import {
     Dialog,
     DialogContent,
@@ -82,9 +83,10 @@ export default function ProductForm({
     product,
     currentCycleId,
 }: ProductFormProps) {
-    const [createProduct, { isLoading: isAdding }] = useCreateProductMutation();
-    const [updateProduct, { isLoading: isUpdating }] =
-        useUpdateProductMutation();
+    const [createProduct, { isLoading: isCreating }] = useCreateProductMutation();
+    const [updateProduct, { isLoading: isUpdating }] = useUpdateProductMutation();
+    const { user } = useAppSelector((state) => state.auth);
+    const isLoading = isCreating || isUpdating;
 
     const {
         register,
@@ -155,9 +157,13 @@ export default function ProductForm({
                 }).unwrap();
                 toast.success("Product updated successfully!");
             } else {
+                if (!user?.id) {
+                    throw new Error("User ID is required");
+                }
                 await createProduct({
                     ...productDetails,
                     cycleId: currentCycleId,
+                    userId: user.id,
                 }).unwrap();
                 toast.success("Product added successfully!");
             }
@@ -212,10 +218,10 @@ export default function ProductForm({
                         <Button
                             type="submit"
                             form="productForm"
-                            disabled={isAdding || isUpdating}
+                            disabled={isLoading}
                             className="flex-1 sm:flex-none"
                         >
-                            {isAdding || isUpdating ? "Saving..." : "Save"}
+                            {isLoading ? "Saving..." : "Save"}
                         </Button>
                     </div>
                 </DialogHeader>

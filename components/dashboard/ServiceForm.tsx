@@ -3,6 +3,7 @@
 import { useForm, useFieldArray, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useAppSelector } from "@/lib/hooks";
 import {
     Dialog,
     DialogContent,
@@ -90,9 +91,10 @@ export default function ServiceForm({
     service,
     currentCycleId,
 }: ServiceFormProps) {
-    const [createService, { isLoading: isAdding }] = useCreateServiceMutation();
-    const [updateService, { isLoading: isUpdating }] =
-        useUpdateServiceMutation();
+    const [createService, { isLoading: isCreating }] = useCreateServiceMutation();
+    const [updateService, { isLoading: isUpdating }] = useUpdateServiceMutation();
+    const { user } = useAppSelector((state) => state.auth);
+    const isLoading = isCreating || isUpdating;
 
     const {
         register,
@@ -167,9 +169,13 @@ export default function ServiceForm({
                 }).unwrap();
                 toast.success("Service updated successfully!");
             } else {
+                if (!user?.id) {
+                    throw new Error("User ID is required");
+                }
                 await createService({
                     ...serviceDetails,
                     cycleId: currentCycleId,
+                    userId: user.id,
                 }).unwrap();
                 toast.success("Service added successfully!");
             }
@@ -224,10 +230,10 @@ export default function ServiceForm({
                         <Button
                             type="submit"
                             form="serviceForm"
-                            disabled={isAdding || isUpdating}
+                            disabled={isCreating || isUpdating}
                             className="flex-1 sm:flex-none"
                         >
-                            {isAdding || isUpdating ? "Saving..." : "Save"}
+                            {isCreating || isUpdating ? "Saving..." : "Save"}
                         </Button>
                     </div>
                 </DialogHeader>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useGetUserCycleStatsQuery } from "@/lib/api";
+import { useGetUserCycleStatsQuery, useGetProfileQuery } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
@@ -11,9 +11,14 @@ interface CycleStatsProps {
 }
 
 export default function CycleStats({ cycleId }: CycleStatsProps) {
+  // Get the current user's profile to get the userId
+  const { data: user } = useGetProfileQuery();
+  const userId = user?.id;
+
+  // Use the userId and cycleId to fetch the user's stats for this cycle
   const { data: stats, isLoading, error } = useGetUserCycleStatsQuery(
-    cycleId,
-    { skip: !cycleId }
+    { userId: userId || '', cycleId },
+    { skip: !cycleId || !userId }
   );
 
   if (isLoading) {
@@ -29,16 +34,8 @@ export default function CycleStats({ cycleId }: CycleStatsProps) {
     );
   }
 
-  // Find the user's stats from the cycle stats array
-  const userStats = stats.length > 0 ? stats[0] : null;
-  
-  if (!userStats) {
-    return (
-      <div className="text-gray-500 p-4 bg-gray-50 rounded-lg">
-        No statistics available for this cycle yet
-      </div>
-    );
-  }
+  // Since we're querying for a specific user, we don't need to find the user in an array
+  const userStats = stats;
 
   // Calculate totals
   const totalServiceEarnings = userStats.total_service_price || 0;

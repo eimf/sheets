@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useAppSelector } from "@/lib/hooks";
 import Header from "@/components/dashboard/Header";
 import CycleManager from "@/components/dashboard/CycleManager";
+import CheckInsTable from "@/components/admin/CheckInsTable";
 import {
     useGetCycleStatsQuery,
     useGetServicesForUserQuery,
@@ -36,7 +37,7 @@ export default function AdminDashboardPage() {
         selectedStylist && currentCycleId
             ? { cycleId: currentCycleId, userId: selectedStylist.id }
             : skipToken
-    );
+    ) as { data: Array<Service & { payments?: PaymentDetail[] }>, isLoading: boolean };
 
     // Fetch products for the selected stylist within the current cycle
     const {
@@ -215,20 +216,21 @@ export default function AdminDashboardPage() {
                                                                 <h4 className="font-semibold text-gray-700 mb-2">Payment Method Breakdown:</h4>
                                                                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
                                                                     {(() => {
-                                                                        // Calculate totals by payment method
-                                                                        const methodTotals = stylistServices.reduce((totals, svc) => {
+                                                                        // Calculate totals by payment method with proper type annotations
+                                                                        const methodTotals = stylistServices.reduce<Record<string, number>>((totals: Record<string, number>, svc: Service & { payments?: PaymentDetail[] }) => {
                                                                             if (svc.payments && svc.payments.length > 0) {
-                                                                                svc.payments.forEach(p => {
-                                                                                    if (!totals[p.method]) {
-                                                                                        totals[p.method] = 0;
+                                                                                svc.payments.forEach((p: PaymentDetail) => {
+                                                                                    const method = p.method as string;
+                                                                                    if (!totals[method]) {
+                                                                                        totals[method] = 0;
                                                                                     }
-                                                                                    totals[p.method] += p.amount;
+                                                                                    totals[method] += p.amount;
                                                                                 });
                                                                             }
                                                                             return totals;
-                                                                        }, {} as Record<string, number>);
+                                                                        }, {});
 
-                                                                        // Display each payment method total
+                                                                        // Display each payment method total with proper type assertions
                                                                         return Object.entries(methodTotals).map(([method, total]) => (
                                                                             <div key={method} className="flex items-center space-x-2">
                                                                                 <span className="font-medium capitalize">{method}:</span>
@@ -360,6 +362,20 @@ export default function AdminDashboardPage() {
                         {!isLoadingStats && cycleStats && cycleStats.length === 0 && (
                             <div className="mt-6 text-center text-gray-500">
                                 No services found for this cycle.
+                            </div>
+                        )}
+                    </div>
+                    
+                    {/* Hourly Employees Check-In Section */}
+                    <div className="bg-white rounded-lg shadow p-6 mt-6">
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Hourly Employee Check-Ins</h2>
+                        <div className="text-sm text-gray-500 mb-4">
+                            Monitor hourly employees' check-ins and check-outs. Click on a row to see more details.
+                        </div>
+                        {currentCycleId && <CheckInsTable cycleId={currentCycleId} />}
+                        {!currentCycleId && (
+                            <div className="text-center text-gray-500 py-4">
+                                Select a cycle to view check-ins
                             </div>
                         )}
                     </div>

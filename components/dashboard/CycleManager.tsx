@@ -66,6 +66,21 @@ export default function CycleManager({
     const isUserRole = auth.user?.role === "user";
     const isAdminRole = auth.user?.role === "admin";
 
+    // Validate that the current cycle ID exists in available cycles (for admin)
+    useEffect(() => {
+        if (isAdminRole && cycles && cycles.length > 0 && currentCycleId) {
+            const cycleExists = cycles.some(
+                (c: Cycle) => String(c.id) === String(currentCycleId)
+            );
+            if (!cycleExists) {
+                console.log(
+                    `[DEBUG] Stored cycle ID ${currentCycleId} not found in available cycles, clearing selection`
+                );
+                onCycleChange("");
+            }
+        }
+    }, [isAdminRole, cycles, currentCycleId, onCycleChange]);
+
     const formatDate = (dateString: string | undefined): string => {
         if (!dateString) return "";
         // Appending T00:00:00 ensures the date is parsed in the user's local timezone
@@ -83,9 +98,14 @@ export default function CycleManager({
         if (isUserRole && cycles && cycles.length > 0 && !currentCycleId) {
             const today = new Date();
             // Format date in local timezone to avoid UTC conversion issues
-            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`; // YYYY-MM-DD
-            console.log(`[DEBUG] User role cycle selection - Today: ${todayStr}, Available cycles:`, cycles);
-            
+            const todayStr = `${today.getFullYear()}-${String(
+                today.getMonth() + 1
+            ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`; // YYYY-MM-DD
+            console.log(
+                `[DEBUG] User role cycle selection - Today: ${todayStr}, Available cycles:`,
+                cycles
+            );
+
             const found = cycles.find(
                 (c: Cycle) =>
                     c.startDate !== undefined &&
@@ -93,47 +113,69 @@ export default function CycleManager({
                     c.startDate <= todayStr &&
                     c.endDate >= todayStr
             );
-            
+
             if (found) {
-                console.log(`[DEBUG] Found matching cycle for today: ${found.id} (${found.startDate} - ${found.endDate})`);
+                console.log(
+                    `[DEBUG] Found matching cycle for today: ${found.id} (${found.startDate} - ${found.endDate})`
+                );
                 onCycleChange(found.id);
             } else {
                 // ISSUE: Empty string may cause problems with components expecting valid IDs
                 // When no cycle matches today's date, find the most recently ENDED cycle
-                console.log(`[DEBUG] No cycle matches today's date ${todayStr}`);
-                
+                console.log(
+                    `[DEBUG] No cycle matches today's date ${todayStr}`
+                );
+
                 if (cycles.length > 0) {
                     // Find cycles in the past (end date < today)
-                    const pastCycles = cycles.filter(c => 
-                        c.endDate !== undefined && c.endDate < todayStr);
-                    
+                    const pastCycles = cycles.filter(
+                        (c) => c.endDate !== undefined && c.endDate < todayStr
+                    );
+
                     if (pastCycles.length > 0) {
                         // Sort past cycles by end date descending (most recently ended first)
-                        const sortedPastCycles = [...pastCycles].sort((a, b) => 
-                            new Date(b.endDate || 0).getTime() - new Date(a.endDate || 0).getTime());
-                        
-                        console.log(`[DEBUG] Using most recently ended cycle: ${sortedPastCycles[0].id} (ended ${sortedPastCycles[0].endDate})`);
+                        const sortedPastCycles = [...pastCycles].sort(
+                            (a, b) =>
+                                new Date(b.endDate || 0).getTime() -
+                                new Date(a.endDate || 0).getTime()
+                        );
+
+                        console.log(
+                            `[DEBUG] Using most recently ended cycle: ${sortedPastCycles[0].id} (ended ${sortedPastCycles[0].endDate})`
+                        );
                         onCycleChange(sortedPastCycles[0].id);
                     } else {
                         // If no past cycles, find the earliest future cycle
-                        const futureCycles = cycles.filter(c => 
-                            c.startDate !== undefined && c.startDate > todayStr);
-                            
+                        const futureCycles = cycles.filter(
+                            (c) =>
+                                c.startDate !== undefined &&
+                                c.startDate > todayStr
+                        );
+
                         if (futureCycles.length > 0) {
                             // Sort future cycles by start date ascending (earliest future cycle first)
-                            const sortedFutureCycles = [...futureCycles].sort((a, b) => 
-                                new Date(a.startDate || 0).getTime() - new Date(b.startDate || 0).getTime());
-                            
-                            console.log(`[DEBUG] No past cycles, using earliest future cycle: ${sortedFutureCycles[0].id} (starts ${sortedFutureCycles[0].startDate})`);
+                            const sortedFutureCycles = [...futureCycles].sort(
+                                (a, b) =>
+                                    new Date(a.startDate || 0).getTime() -
+                                    new Date(b.startDate || 0).getTime()
+                            );
+
+                            console.log(
+                                `[DEBUG] No past cycles, using earliest future cycle: ${sortedFutureCycles[0].id} (starts ${sortedFutureCycles[0].startDate})`
+                            );
                             onCycleChange(sortedFutureCycles[0].id);
                         } else {
                             // If we get here, cycles exist but don't have proper dates
-                            console.log(`[DEBUG] No cycles with valid dates, using first available: ${cycles[0].id}`);
+                            console.log(
+                                `[DEBUG] No cycles with valid dates, using first available: ${cycles[0].id}`
+                            );
                             onCycleChange(cycles[0].id);
                         }
                     }
                 } else {
-                    console.log(`[DEBUG] No cycles available, using empty string`);
+                    console.log(
+                        `[DEBUG] No cycles available, using empty string`
+                    );
                     onCycleChange("");
                 }
             }
@@ -148,7 +190,9 @@ export default function CycleManager({
 
     if (isUserRole) {
         // Display readonly current cycle info (must match the cycle chosen for today)
-        const current = cycles?.find((c: Cycle) => String(c.id) === String(currentCycleId));
+        const current = cycles?.find(
+            (c: Cycle) => String(c.id) === String(currentCycleId)
+        );
         const totalPrice =
             currentCycleId && servicesForCycle
                 ? servicesForCycle.reduce((sum, s) => sum + s.price, 0)
@@ -203,7 +247,7 @@ export default function CycleManager({
             <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow">
                 <div className="w-full sm:w-auto">
                     <Select
-                        value={currentCycleId || ""}
+                        value={currentCycleId ? String(currentCycleId) : ""}
                         onValueChange={onCycleChange}
                         disabled={isLoading || cycles?.length === 0}
                     >
@@ -213,7 +257,10 @@ export default function CycleManager({
                         <SelectContent>
                             {cycles && cycles.length > 0 ? (
                                 cycles.map((cycle: Cycle) => (
-                                    <SelectItem key={cycle.id} value={cycle.id}>
+                                    <SelectItem
+                                        key={cycle.id}
+                                        value={String(cycle.id)}
+                                    >
                                         {cycle.startDate && cycle.endDate
                                             ? `${formatDate(
                                                   cycle.startDate

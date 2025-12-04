@@ -16,22 +16,17 @@ export default function DashboardPage() {
         (state) => state.auth
     );
 
-    // Persist cycle selection in localStorage to survive Fast Refresh
-    const [currentCycleId, setCurrentCycleId] = useState<string | null>(() => {
-        if (typeof window !== "undefined") {
-            return localStorage.getItem("user_selected_cycle_id");
-        }
-        return null;
-    });
+    // For user/stylish role, don't persist cycle selection in localStorage
+    // CycleManager will always select the latest cycle automatically
+    // This prevents stale cycle IDs from persisting across sessions
+    const [currentCycleId, setCurrentCycleId] = useState<string | null>(null);
 
-    // Save cycle selection to localStorage whenever it changes
+    // Clear any stale localStorage value for user role on mount
     useEffect(() => {
-        if (currentCycleId) {
-            localStorage.setItem("user_selected_cycle_id", currentCycleId);
-        } else {
+        if (typeof window !== "undefined" && user?.role === "user") {
             localStorage.removeItem("user_selected_cycle_id");
         }
-    }, [currentCycleId]);
+    }, [user?.role]);
 
     useEffect(() => {
         if (!loading && !isAuthenticated) {

@@ -13,15 +13,35 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import {
     useCreateServiceMutation,
     useUpdateServiceMutation,
+    useGetCycleQuery,
     Service,
     NewService,
+    Cycle,
 } from "@/lib/api";
-import { useEffect } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { Textarea } from "@/components/ui/textarea";
+import { Calendar } from "@/components/ui/calendar";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
+import { CalendarIcon } from "lucide-react";
+import { format } from "date-fns";
+import { useSelector } from "react-redux";
+import { selectAuth } from "@/lib/slices/authSlice";
+import { cn } from "@/lib/utils";
 
 const paymentMethods = [
     { value: "card", label: "Card" },
@@ -37,51 +57,76 @@ const paymentDetailSchema = z.object({
     label: z.string().optional(),
 });
 
-const serviceSchema = z
-    .object({
-        name: z.string().min(2, "Name must be at least 2 characters."),
-        customer: z
-            .string()
-            .min(2, "Customer must be at least 2 characters.")
-            .optional(),
-        price: z.coerce.number().min(0, "Price must be a positive number."),
-        tip: z.coerce
-            .number()
-            .min(0, "Tip must be a positive number.")
-            .optional(),
-        notes: z
-            .string()
-            .max(500, "Notes must be under 500 characters.")
-            .optional(),
-        payments: z
-            .array(paymentDetailSchema)
-            .nonempty()
-            .refine((arr) => {
-                const total = arr.reduce((s, p) => s + p.amount, 0);
-                return !isNaN(total);
-            }, "Invalid payments"),
-        date: z.string().refine((val) => !isNaN(Date.parse(val)), {
-            message: "Invalid date",
-        }),
-    })
-    .refine(
-        (data) => {
-            const total = data.payments.reduce((s, p) => s + p.amount, 0);
-            return total === data.price;
-        },
-        {
-            message: "Payment amounts must sum to Price",
-            path: ["payments"],
-        }
-    );
+// Create a schema factory that accepts cycle date range for validation
+const createServiceSchema = (
+    startDate?: string,
+    endDate?: string,
+    isAdmin?: boolean
+) => {
+    return z
+        .object({
+            name: z.string().min(2, "Name must be at least 2 characters."),
+            customer: z
+                .string()
+                .min(2, "Customer must be at least 2 characters.")
+                .optional(),
+            price: z.coerce.number().min(0, "Price must be a positive number."),
+            tip: z.coerce
+                .number()
+                .min(0, "Tip must be a positive number.")
+                .optional(),
+            notes: z
+                .string()
+                .max(500, "Notes must be under 500 characters.")
+                .optional(),
+            payments: z
+                .array(paymentDetailSchema)
+                .nonempty()
+                .refine((arr) => {
+                    const total = arr.reduce((s, p) => s + p.amount, 0);
+                    return !isNaN(total);
+                }, "Invalid payments"),
+            date: z
+                .string()
+                .refine((val) => !isNaN(Date.parse(val)), {
+                    message: "Invalid date",
+                })
+                .refine(
+                    (val) => {
+                        // Skip cycle date validation for admin users
+                        if (isAdmin) return true;
+                        if (!startDate || !endDate) return true; // Skip validation if cycle dates not available
+                        const serviceDate = val; // YYYY-MM-DD format
+                        return (
+                            serviceDate >= startDate && serviceDate <= endDate
+                        );
+                    },
+                    {
+                        message: `Service date must be within the cycle date range (${startDate} to ${endDate})`,
+                    }
+                ),
+        })
+        .refine(
+            (data) => {
+                const total = data.payments.reduce((s, p) => s + p.amount, 0);
+                return total === data.price;
+            },
+            {
+                message: "Payment amounts must sum to Price",
+                path: ["payments"],
+            }
+        );
+};
 
-type ServiceFormData = z.infer<typeof serviceSchema>;
+type ServiceFormData = z.infer<ReturnType<typeof createServiceSchema>>;
 
 export interface ServiceFormProps {
     isOpen: boolean;
     onClose: () => void;
     service: Service | null;
     currentCycleId: string;
+    allowCycleSelection?: boolean;
+    availableCycles?: Cycle[];
 }
 
 export default function ServiceForm({
@@ -89,10 +134,133 @@ export default function ServiceForm({
     onClose,
     service,
     currentCycleId,
+    allowCycleSelection = false,
+    availableCycles = [],
 }: ServiceFormProps) {
     const [createService, { isLoading: isAdding }] = useCreateServiceMutation();
     const [updateService, { isLoading: isUpdating }] =
         useUpdateServiceMutation();
+    const [selectedCycleId, setSelectedCycleId] =
+        useState<string>(currentCycleId);
+    const auth = useSelector(selectAuth);
+    const isAdmin = auth.user?.role === "admin";
+    const isStylish = auth.user?.role === "user";
+
+    // Fetch the selected cycle to get date range for validation
+    const { data: selectedCycle } = useGetCycleQuery(selectedCycleId, {
+        skip: !selectedCycleId,
+    });
+
+    // Get cycle dates for validation
+    const cycleStartDate = selectedCycle?.startDate;
+    const cycleEndDate = selectedCycle?.endDate;
+
+    // Store latest cycle dates in refs so validation can access current values
+    // This allows the resolver to use the latest cycle dates even though it's created once
+    const cycleStartDateRef = useRef(cycleStartDate);
+    const cycleEndDateRef = useRef(cycleEndDate);
+    const isAdminRef = useRef(isAdmin);
+
+    useEffect(() => {
+        cycleStartDateRef.current = cycleStartDate;
+        cycleEndDateRef.current = cycleEndDate;
+        isAdminRef.current = isAdmin;
+    }, [cycleStartDate, cycleEndDate, isAdmin]);
+
+    // Create resolver that uses refs to access latest cycle dates for validation
+    const resolver = useMemo(
+        () =>
+            zodResolver(
+                z
+                    .object({
+                        name: z
+                            .string()
+                            .min(2, "Name must be at least 2 characters."),
+                        customer: z
+                            .string()
+                            .min(2, "Customer must be at least 2 characters.")
+                            .optional(),
+                        price: z.coerce
+                            .number()
+                            .min(0, "Price must be a positive number."),
+                        tip: z.coerce
+                            .number()
+                            .min(0, "Tip must be a positive number.")
+                            .optional(),
+                        notes: z
+                            .string()
+                            .max(500, "Notes must be under 500 characters.")
+                            .optional(),
+                        payments: z
+                            .array(
+                                z.object({
+                                    method: z.enum([
+                                        "card",
+                                        "cash",
+                                        "cashapp",
+                                        "zelle",
+                                        "other",
+                                    ]),
+                                    amount: z.coerce
+                                        .number()
+                                        .min(0, "Amount must be positive"),
+                                    label: z.string().optional(),
+                                })
+                            )
+                            .nonempty()
+                            .refine((arr) => {
+                                const total = arr.reduce(
+                                    (s, p) => s + p.amount,
+                                    0
+                                );
+                                return !isNaN(total);
+                            }, "Invalid payments"),
+                        date: z
+                            .string()
+                            .refine((val) => !isNaN(Date.parse(val)), {
+                                message: "Invalid date",
+                            })
+                            .refine(
+                                (val) => {
+                                    // Access latest cycle dates from refs for dynamic validation
+                                    if (isAdminRef.current) return true;
+                                    const startDate = cycleStartDateRef.current;
+                                    const endDate = cycleEndDateRef.current;
+                                    if (!startDate || !endDate) return true;
+                                    const serviceDate = val;
+                                    return (
+                                        serviceDate >= startDate &&
+                                        serviceDate <= endDate
+                                    );
+                                },
+                                (val) => {
+                                    // Dynamic error message using current cycle dates
+                                    const startDate = cycleStartDateRef.current;
+                                    const endDate = cycleEndDateRef.current;
+                                    return {
+                                        message: `Service date must be within the cycle date range (${
+                                            startDate || "N/A"
+                                        } to ${endDate || "N/A"})`,
+                                    };
+                                }
+                            ),
+                    })
+                    .refine(
+                        (data) => {
+                            const total = data.payments.reduce(
+                                (s, p) => s + p.amount,
+                                0
+                            );
+                            return total === data.price;
+                        },
+                        {
+                            message: "Payment amounts must sum to Price",
+                            path: ["payments"],
+                        }
+                    )
+            ),
+        [] // Empty deps - resolver uses refs that are always current
+    );
 
     const {
         register,
@@ -101,9 +269,19 @@ export default function ServiceForm({
         control,
         formState: { errors },
         setValue,
+        trigger,
+        setError,
     } = useForm<ServiceFormData>({
-        resolver: zodResolver(serviceSchema),
+        resolver,
+        mode: "onChange", // Validate on change to catch cycle date violations immediately
     });
+
+    // Re-validate date field when cycle changes
+    useEffect(() => {
+        if (cycleStartDate && cycleEndDate) {
+            trigger("date");
+        }
+    }, [cycleStartDate, cycleEndDate, trigger]);
 
     const { fields, append, remove } = useFieldArray({
         control,
@@ -127,6 +305,16 @@ export default function ServiceForm({
                         ? new Date(service.date).toISOString().split("T")[0]
                         : "",
                 });
+                // Set cycle ID for editing - always set when allowCycleSelection is enabled
+                if (allowCycleSelection) {
+                    setSelectedCycleId(
+                        service.cycleId ||
+                            currentCycleId ||
+                            (availableCycles?.[0]
+                                ? String(availableCycles[0].id)
+                                : "")
+                    );
+                }
             } else {
                 reset({
                     name: "",
@@ -137,9 +325,34 @@ export default function ServiceForm({
                     payments: [{ method: "card", amount: 0 }],
                     date: new Date().toISOString().split("T")[0],
                 });
+                setSelectedCycleId(
+                    allowCycleSelection
+                        ? currentCycleId ||
+                              (availableCycles?.[0]
+                                  ? String(availableCycles[0].id)
+                                  : "")
+                        : currentCycleId
+                );
             }
         }
-    }, [service, reset, isOpen]);
+    }, [
+        service,
+        reset,
+        isOpen,
+        allowCycleSelection,
+        currentCycleId,
+        availableCycles,
+    ]);
+
+    // If cycle selection is enabled and no cycle is selected, default to the first available cycle
+    useEffect(() => {
+        if (!isOpen) return;
+        if (!allowCycleSelection) return;
+        if (selectedCycleId) return;
+        if (availableCycles && availableCycles.length > 0) {
+            setSelectedCycleId(String(availableCycles[0].id));
+        }
+    }, [isOpen, allowCycleSelection, selectedCycleId, availableCycles]);
 
     const paymentsWatch = useWatch({ control, name: "payments" });
     useEffect(() => {
@@ -154,6 +367,21 @@ export default function ServiceForm({
     }, [paymentsWatch, setValue]);
 
     const onSubmit = async (data: ServiceFormData) => {
+        // Final validation: ensure service date is within cycle date range (only for stylish users)
+        if (!isAdmin && cycleStartDate && cycleEndDate) {
+            const serviceDate = data.date; // YYYY-MM-DD format
+            if (serviceDate < cycleStartDate || serviceDate > cycleEndDate) {
+                setError("date", {
+                    type: "manual",
+                    message: `Service date must be within the cycle date range (${cycleStartDate} to ${cycleEndDate})`,
+                });
+                toast.error(
+                    `Service date must be within the cycle date range (${cycleStartDate} to ${cycleEndDate})`
+                );
+                return;
+            }
+        }
+
         try {
             const serviceDetails: Omit<NewService, "cycleId" | "userId"> = {
                 ...data,
@@ -161,22 +389,49 @@ export default function ServiceForm({
             };
 
             if (service) {
-                await updateService({
-                    id: service.id,
+                // Ensure service ID is valid
+                if (!service.id) {
+                    toast.error(
+                        "Service ID is missing. Cannot update service."
+                    );
+                    return;
+                }
+                if (allowCycleSelection && !selectedCycleId) {
+                    toast.error("Please select a cycle.");
+                    return;
+                }
+                // Always include cycleId in update - use selected cycle if allowed, otherwise use service's current cycle
+                const updateData: any = {
+                    id: String(service.id), // Ensure ID is a string
                     ...serviceDetails,
-                }).unwrap();
+                    cycleId: allowCycleSelection
+                        ? selectedCycleId
+                        : service.cycleId || currentCycleId,
+                };
+                await updateService(updateData).unwrap();
                 toast.success("Service updated successfully!");
             } else {
+                if (allowCycleSelection && !selectedCycleId) {
+                    toast.error("Please select a cycle.");
+                    return;
+                }
                 await createService({
                     ...serviceDetails,
-                    cycleId: currentCycleId,
+                    cycleId: allowCycleSelection
+                        ? selectedCycleId
+                        : currentCycleId,
                 }).unwrap();
                 toast.success("Service added successfully!");
             }
             onClose();
-        } catch (err) {
+        } catch (err: any) {
             console.error("Failed to save service:", err);
-            toast.error("An error occurred. Please try again.");
+            const errorMessage =
+                err?.data?.error ||
+                err?.data?.message ||
+                err?.message ||
+                "An error occurred. Please try again.";
+            toast.error(`Failed to save service: ${errorMessage}`);
         }
     };
 
@@ -236,6 +491,33 @@ export default function ServiceForm({
                     onSubmit={handleSubmit(onSubmit)}
                     className="space-y-4 pt-4 max-h-[70vh] overflow-y-auto px-4"
                 >
+                    {allowCycleSelection && availableCycles.length > 0 && (
+                        <div>
+                            <Label htmlFor="cycle">Cycle</Label>
+                            <Select
+                                value={selectedCycleId}
+                                onValueChange={(newCycleId) => {
+                                    setSelectedCycleId(newCycleId);
+                                    // Re-validate date when cycle changes
+                                    setTimeout(() => trigger("date"), 100);
+                                }}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a cycle" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {availableCycles.map((cycle) => (
+                                        <SelectItem
+                                            key={cycle.id}
+                                            value={String(cycle.id)}
+                                        >
+                                            {cycle.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
                     <div>
                         <Label htmlFor="name">Service</Label>
                         <Input
@@ -280,14 +562,120 @@ export default function ServiceForm({
                         </div>
                         <div>
                             <Label htmlFor="date">Date</Label>
-                            <Input
-                                id="date"
-                                type="date"
-                                {...register("date")}
+                            <Controller
+                                name="date"
+                                control={control}
+                                rules={{
+                                    validate: (value) => {
+                                        if (!value) {
+                                            return "Date is required";
+                                        }
+                                        // Skip cycle date validation for admin users
+                                        if (isAdmin) {
+                                            return true;
+                                        }
+                                        const dateStr =
+                                            typeof value === "string"
+                                                ? value
+                                                : format(value, "yyyy-MM-dd");
+                                        if (!cycleStartDate || !cycleEndDate) {
+                                            return true; // Skip validation if cycle dates not available
+                                        }
+                                        if (
+                                            dateStr < cycleStartDate ||
+                                            dateStr > cycleEndDate
+                                        ) {
+                                            return `Service date must be within the cycle date range (${cycleStartDate} to ${cycleEndDate})`;
+                                        }
+                                        return true;
+                                    },
+                                }}
+                                render={({ field }) => {
+                                    const dateValue = field.value
+                                        ? typeof field.value === "string"
+                                            ? new Date(
+                                                  field.value + "T00:00:00"
+                                              )
+                                            : field.value
+                                        : undefined;
+
+                                    // For stylish users, disable dates outside the cycle range
+                                    const disabledDates =
+                                        isStylish &&
+                                        cycleStartDate &&
+                                        cycleEndDate
+                                            ? (date: Date) => {
+                                                  const dateStr = format(
+                                                      date,
+                                                      "yyyy-MM-dd"
+                                                  );
+                                                  return (
+                                                      dateStr <
+                                                          cycleStartDate ||
+                                                      dateStr > cycleEndDate
+                                                  );
+                                              }
+                                            : undefined;
+
+                                    return (
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    className={cn(
+                                                        "w-full justify-start text-left font-normal",
+                                                        !dateValue &&
+                                                            "text-muted-foreground"
+                                                    )}
+                                                >
+                                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                                    {dateValue ? (
+                                                        format(
+                                                            dateValue,
+                                                            "MM/dd/yy"
+                                                        )
+                                                    ) : (
+                                                        <span>Pick a date</span>
+                                                    )}
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent
+                                                className="w-auto p-0"
+                                                align="start"
+                                            >
+                                                <Calendar
+                                                    mode="single"
+                                                    selected={dateValue}
+                                                    onSelect={(date) => {
+                                                        if (date) {
+                                                            const dateStr =
+                                                                format(
+                                                                    date,
+                                                                    "yyyy-MM-dd"
+                                                                );
+                                                            field.onChange(
+                                                                dateStr
+                                                            );
+                                                            trigger("date");
+                                                        }
+                                                    }}
+                                                    disabled={disabledDates}
+                                                    initialFocus
+                                                />
+                                            </PopoverContent>
+                                        </Popover>
+                                    );
+                                }}
                             />
                             {errors.date && (
                                 <p className="text-red-500 text-sm mt-1">
                                     {errors.date.message}
+                                </p>
+                            )}
+                            {cycleStartDate && cycleEndDate && isStylish && (
+                                <p className="text-gray-500 text-xs mt-1">
+                                    Cycle range: {cycleStartDate} to{" "}
+                                    {cycleEndDate}
                                 </p>
                             )}
                         </div>

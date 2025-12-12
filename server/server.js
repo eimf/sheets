@@ -71,8 +71,14 @@ db = new sqlite3.Database(path.join(dataDir, "sheets.db"), (err) => {
                 name TEXT UNIQUE NOT NULL,
                 start_date DATE,
                 end_date DATE,
+                notes TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`);
+
+            // Add notes column if it doesn't exist (migration)
+            db.run(`ALTER TABLE cycles ADD COLUMN notes TEXT`, (err) => {
+                // Ignore error if column already exists
+            });
 
             // Services table (Simplified)
             db.run(`CREATE TABLE IF NOT EXISTS services (
@@ -111,29 +117,33 @@ db = new sqlite3.Database(path.join(dataDir, "sheets.db"), (err) => {
             // Drop obsolete tables if they exist
             db.run(`DROP TABLE IF EXISTS payment_sources`);
             db.run(`DROP TABLE IF EXISTS service_payment_sources`);
-            
+
             // Check if products table has customer column and remove it if it exists
             db.all(`PRAGMA table_info(products)`, [], (err, columns) => {
                 if (err) {
                     console.error("Failed to inspect products table:", err);
                     return;
                 }
-                
-                const hasCustomer = columns.some(col => col.name === "customer");
-                
+
+                const hasCustomer = columns.some(
+                    (col) => col.name === "customer"
+                );
+
                 if (hasCustomer) {
-                    console.log("Removing customer column from products table...");
-                    
+                    console.log(
+                        "Removing customer column from products table..."
+                    );
+
                     // SQLite doesn't support DROP COLUMN directly, so we need to:
                     // 1. Create a new table without the customer column
                     // 2. Copy data from old table to new table
                     // 3. Drop old table
                     // 4. Rename new table to original name
-                    
+
                     db.serialize(() => {
                         // Begin transaction for atomicity
                         db.run("BEGIN TRANSACTION");
-                        
+
                         // Create new table without customer column
                         db.run(`CREATE TABLE products_new (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,26 +159,31 @@ db = new sqlite3.Database(path.join(dataDir, "sheets.db"), (err) => {
                             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                             FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE CASCADE
                         )`);
-                        
+
                         // Copy data from old table to new table
                         db.run(`INSERT INTO products_new 
                             (id, user_id, cycle_id, name, notes, payments, price, date, created_at, updated_at)
                             SELECT id, user_id, cycle_id, name, notes, payments, price, date, created_at, updated_at 
                             FROM products`);
-                        
+
                         // Drop old table
                         db.run(`DROP TABLE products`);
-                        
+
                         // Rename new table to original name
                         db.run(`ALTER TABLE products_new RENAME TO products`);
-                        
+
                         // Commit transaction
                         db.run("COMMIT", (err) => {
                             if (err) {
-                                console.error("Failed to migrate products table:", err);
+                                console.error(
+                                    "Failed to migrate products table:",
+                                    err
+                                );
                                 db.run("ROLLBACK");
                             } else {
-                                console.log("Successfully removed customer column from products table");
+                                console.log(
+                                    "Successfully removed customer column from products table"
+                                );
                             }
                         });
                     });
@@ -268,11 +283,9 @@ const authenticateUser = (req, res, next) => {
     // Authorization header present
     if (!authorization || !authorization.startsWith("Bearer ")) {
         // No or malformed token
-        return res
-            .status(401)
-            .json({
-                error: "Authentication required. Token missing or malformed.",
-            });
+        return res.status(401).json({
+            error: "Authentication required. Token missing or malformed.",
+        });
     }
     const token = authorization.split(" ")[1];
     db.get(
@@ -281,11 +294,9 @@ const authenticateUser = (req, res, next) => {
         (err, session) => {
             if (err) {
                 // Session validation error
-                return res
-                    .status(500)
-                    .json({
-                        error: "Session validation error: " + err.message,
-                    });
+                return res.status(500).json({
+                    error: "Session validation error: " + err.message,
+                });
             }
             if (!session) {
                 // No session found for token
@@ -304,7 +315,7 @@ const authenticateUser = (req, res, next) => {
 // Get all cycles for admin
 app.get("/api/admin/cycles", authenticateUser, requireAdmin, (req, res) => {
     db.all(
-        "SELECT id, name, start_date as startDate, end_date as endDate FROM cycles ORDER BY id DESC",
+        "SELECT id, name, start_date as startDate, end_date as endDate, notes FROM cycles ORDER BY id DESC",
         [],
         (err, cycles) => {
             if (err) {
@@ -348,14 +359,11 @@ app.get(
 );
 
 // User stats endpoint (non-admin, filtered to current user only)
-app.get(
-    "/api/cycles/:cycleId/stats",
-    authenticateUser,
-    (req, res) => {
-        const { cycleId } = req.params;
-        const userId = req.user.id;
+app.get("/api/cycles/:cycleId/stats", authenticateUser, (req, res) => {
+    const { cycleId } = req.params;
+    const userId = req.user.id;
 
-        const query = `
+    const query = `
         SELECT 
             u.id as user_id, 
             u.stylish, 
@@ -371,15 +379,14 @@ app.get(
         ORDER BY (total_service_price + COALESCE(total_product_price, 0)) DESC;
     `;
 
-        db.all(query, [cycleId, cycleId, cycleId, userId], (err, stats) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
+    db.all(query, [cycleId, cycleId, cycleId, userId], (err, stats) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
 
-            res.json(stats);
-        });
-    }
-);
+        res.json(stats);
+    });
+});
 
 // --- Auth Endpoints ---
 app.post("/api/auth/register", (req, res) => {
@@ -395,13 +402,11 @@ app.post("/api/auth/register", (req, res) => {
         [email, password, stylish],
         function (err) {
             if (err) {
-                return res
-                    .status(400)
-                    .json({
-                        error: err.message.includes("UNIQUE constraint failed")
-                            ? "Email already exists."
-                            : err.message,
-                    });
+                return res.status(400).json({
+                    error: err.message.includes("UNIQUE constraint failed")
+                        ? "Email already exists."
+                        : err.message,
+                });
             }
             const userId = this.lastID;
             const sessionId = crypto.randomBytes(32).toString("hex");
@@ -410,28 +415,24 @@ app.post("/api/auth/register", (req, res) => {
                 [sessionId, userId],
                 (sessionErr) => {
                     if (sessionErr) {
-                        return res
-                            .status(500)
-                            .json({
-                                error:
-                                    "Failed to create session: " +
-                                    sessionErr.message,
-                            });
+                        return res.status(500).json({
+                            error:
+                                "Failed to create session: " +
+                                sessionErr.message,
+                        });
                     }
                     db.get(
                         "SELECT id, email, stylish, role FROM users WHERE id = ?",
                         [userId],
                         (userErr, user) => {
                             if (userErr || !user) {
-                                return res
-                                    .status(500)
-                                    .json({
-                                        error:
-                                            "Failed to retrieve user after registration: " +
-                                            (userErr
-                                                ? userErr.message
-                                                : "User not found"),
-                                    });
+                                return res.status(500).json({
+                                    error:
+                                        "Failed to retrieve user after registration: " +
+                                        (userErr
+                                            ? userErr.message
+                                            : "User not found"),
+                                });
                             }
                             res.status(201).json({ token: sessionId, user });
                         }
@@ -467,13 +468,11 @@ app.post("/api/auth/login", (req, res) => {
                 [sessionId, user.id],
                 (sessionErr) => {
                     if (sessionErr) {
-                        return res
-                            .status(500)
-                            .json({
-                                error:
-                                    "Failed to create session: " +
-                                    sessionErr.message,
-                            });
+                        return res.status(500).json({
+                            error:
+                                "Failed to create session: " +
+                                sessionErr.message,
+                        });
                     }
                     const { password, ...userWithoutPassword } = user; // Exclude password from response
                     res.json({ token: sessionId, user: userWithoutPassword });
@@ -501,23 +500,21 @@ app.get("/api/auth/profile", authenticateUser, (req, res) => {
 
 // --- Cycle Endpoints --- (Protected by authenticateUser)
 app.post("/api/cycles", authenticateUser, (req, res) => {
-    const { name, startDate, endDate } = req.body;
+    const { name, startDate, endDate, notes } = req.body;
     if (!name) {
         return res.status(400).json({ error: "Cycle name is required." });
     }
-    const sql = `INSERT INTO cycles (name, start_date, end_date) VALUES (?, ?, ?)`;
-    db.run(sql, [name, startDate, endDate], function (err) {
+    const sql = `INSERT INTO cycles (name, start_date, end_date, notes) VALUES (?, ?, ?, ?)`;
+    db.run(sql, [name, startDate, endDate, notes || null], function (err) {
         if (err) {
-            return res
-                .status(400)
-                .json({
-                    error: err.message.includes("UNIQUE constraint failed")
-                        ? "A cycle with this name already exists."
-                        : err.message,
-                });
+            return res.status(400).json({
+                error: err.message.includes("UNIQUE constraint failed")
+                    ? "A cycle with this name already exists."
+                    : err.message,
+            });
         }
         db.get(
-            "SELECT id, name, start_date AS startDate, end_date AS endDate FROM cycles WHERE id = ?",
+            "SELECT id, name, start_date AS startDate, end_date AS endDate, notes FROM cycles WHERE id = ?",
             [this.lastID],
             (getErr, cycle) => {
                 if (getErr || !cycle)
@@ -533,7 +530,7 @@ app.post("/api/cycles", authenticateUser, (req, res) => {
 app.get("/api/cycles", authenticateUser, (req, res) => {
     // All authenticated users can get the full list of cycles
     db.all(
-        "SELECT id, name, start_date AS startDate, end_date AS endDate FROM cycles ORDER BY start_date DESC, name ASC",
+        "SELECT id, name, start_date AS startDate, end_date AS endDate, notes FROM cycles ORDER BY start_date DESC, name ASC",
         [],
         (err, cycles) => {
             if (err) {
@@ -547,7 +544,7 @@ app.get("/api/cycles", authenticateUser, (req, res) => {
 app.get("/api/cycles/:cycleId", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
     db.get(
-        "SELECT id, name, start_date AS startDate, end_date AS endDate FROM cycles WHERE id = ?",
+        "SELECT id, name, start_date AS startDate, end_date AS endDate, notes FROM cycles WHERE id = ?",
         [cycleId],
         (err, cycle) => {
             if (err) {
@@ -563,14 +560,12 @@ app.get("/api/cycles/:cycleId", authenticateUser, (req, res) => {
 
 app.put("/api/cycles/:cycleId", authenticateUser, (req, res) => {
     const { cycleId } = req.params;
-    const { name, startDate, endDate } = req.body;
+    const { name, startDate, endDate, notes } = req.body;
 
-    if (!name && !startDate && !endDate) {
-        return res
-            .status(400)
-            .json({
-                error: "No update fields provided (name, startDate, endDate).",
-            });
+    if (!name && !startDate && !endDate && notes === undefined) {
+        return res.status(400).json({
+            error: "No update fields provided (name, startDate, endDate, notes).",
+        });
     }
 
     // Build query dynamically based on provided fields
@@ -588,6 +583,10 @@ app.put("/api/cycles/:cycleId", authenticateUser, (req, res) => {
         fieldsToUpdate.push("end_date = ?");
         queryParams.push(endDate);
     }
+    if (notes !== undefined) {
+        fieldsToUpdate.push("notes = ?");
+        queryParams.push(notes || null);
+    }
 
     if (fieldsToUpdate.length === 0) {
         return res
@@ -600,13 +599,11 @@ app.put("/api/cycles/:cycleId", authenticateUser, (req, res) => {
     const sql = `UPDATE cycles SET ${fieldsToUpdate.join(", ")} WHERE id = ?`;
     db.run(sql, queryParams, function (err) {
         if (err) {
-            return res
-                .status(400)
-                .json({
-                    error: err.message.includes("UNIQUE constraint failed")
-                        ? "A cycle with this name already exists."
-                        : err.message,
-                });
+            return res.status(400).json({
+                error: err.message.includes("UNIQUE constraint failed")
+                    ? "A cycle with this name already exists."
+                    : err.message,
+            });
         }
         if (this.changes === 0) {
             return res
@@ -614,7 +611,74 @@ app.put("/api/cycles/:cycleId", authenticateUser, (req, res) => {
                 .json({ error: "Cycle not found or no changes made." });
         }
         db.get(
-            "SELECT id, name, start_date AS startDate, end_date AS endDate FROM cycles WHERE id = ?",
+            "SELECT id, name, start_date AS startDate, end_date AS endDate, notes FROM cycles WHERE id = ?",
+            [cycleId],
+            (getErr, cycle) => {
+                if (getErr || !cycle)
+                    return res
+                        .status(500)
+                        .json({ error: "Failed to retrieve updated cycle." });
+                res.json(cycle);
+            }
+        );
+    });
+});
+
+// PATCH endpoint (same as PUT but for partial updates)
+app.patch("/api/cycles/:cycleId", authenticateUser, (req, res) => {
+    const { cycleId } = req.params;
+    const { name, startDate, endDate, notes } = req.body;
+
+    if (!name && !startDate && !endDate && notes === undefined) {
+        return res.status(400).json({
+            error: "No update fields provided (name, startDate, endDate, notes).",
+        });
+    }
+
+    // Build query dynamically based on provided fields
+    let fieldsToUpdate = [];
+    let queryParams = [];
+    if (name !== undefined) {
+        fieldsToUpdate.push("name = ?");
+        queryParams.push(name);
+    }
+    if (startDate !== undefined) {
+        fieldsToUpdate.push("start_date = ?");
+        queryParams.push(startDate);
+    }
+    if (endDate !== undefined) {
+        fieldsToUpdate.push("end_date = ?");
+        queryParams.push(endDate);
+    }
+    if (notes !== undefined) {
+        fieldsToUpdate.push("notes = ?");
+        queryParams.push(notes || null);
+    }
+
+    if (fieldsToUpdate.length === 0) {
+        return res
+            .status(400)
+            .json({ error: "No valid update fields provided." });
+    }
+
+    queryParams.push(cycleId);
+
+    const sql = `UPDATE cycles SET ${fieldsToUpdate.join(", ")} WHERE id = ?`;
+    db.run(sql, queryParams, function (err) {
+        if (err) {
+            return res.status(400).json({
+                error: err.message.includes("UNIQUE constraint failed")
+                    ? "A cycle with this name already exists."
+                    : err.message,
+            });
+        }
+        if (this.changes === 0) {
+            return res
+                .status(404)
+                .json({ error: "Cycle not found or no changes made." });
+        }
+        db.get(
+            "SELECT id, name, start_date AS startDate, end_date AS endDate, notes FROM cycles WHERE id = ?",
             [cycleId],
             (getErr, cycle) => {
                 if (getErr || !cycle)
@@ -678,11 +742,9 @@ app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
 
         db.all(sqlQuery, queryParams, (serviceErr, services) => {
             if (serviceErr)
-                return res
-                    .status(500)
-                    .json({
-                        error: "Error fetching services: " + serviceErr.message,
-                    });
+                return res.status(500).json({
+                    error: "Error fetching services: " + serviceErr.message,
+                });
 
             const processedServices = (services || []).map((service) => {
                 let parsedPayments = [];
@@ -705,11 +767,15 @@ app.get("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
             // Service result
             if (processedServices.length === 0) {
                 // Check if any services exist at all to help debugging
-                db.get("SELECT COUNT(*) as count FROM services", [], (countErr, result) => {
-                    if (!countErr) {
-                        // Total services count
+                db.get(
+                    "SELECT COUNT(*) as count FROM services",
+                    [],
+                    (countErr, result) => {
+                        if (!countErr) {
+                            // Total services count
+                        }
                     }
-                });
+                );
             }
 
             res.json(processedServices);
@@ -769,11 +835,9 @@ app.post("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
         // Allow for optional Z, allow for optional milliseconds
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
             // Also allow YYYY-MM-DD if time is not included by client
-            return res
-                .status(400)
-                .json({
-                    error: "Date must be a valid ISO 8601 string (e.g., YYYY-MM-DD or YYYY-MM-DDTHH:mm:ssZ).",
-                });
+            return res.status(400).json({
+                error: "Date must be a valid ISO 8601 string (e.g., YYYY-MM-DD or YYYY-MM-DDTHH:mm:ssZ).",
+            });
         }
     }
 
@@ -811,22 +875,17 @@ app.post("/api/cycles/:cycleId/services", authenticateUser, (req, res) => {
             ],
             function (serviceErr) {
                 if (serviceErr)
-                    return res
-                        .status(500)
-                        .json({
-                            error:
-                                "Failed to add service: " + serviceErr.message,
-                        });
+                    return res.status(500).json({
+                        error: "Failed to add service: " + serviceErr.message,
+                    });
                 db.get(
                     "SELECT id, name, customer, notes, payments, price, tip, date, cycle_id as cycleId, user_id as userId FROM services WHERE id = ?",
                     [this.lastID],
                     (getErr, newService) => {
                         if (getErr || !newService)
-                            return res
-                                .status(500)
-                                .json({
-                                    error: "Failed to retrieve newly added service.",
-                                });
+                            return res.status(500).json({
+                                error: "Failed to retrieve newly added service.",
+                            });
                         newService.payments = newService.payments
                             ? JSON.parse(newService.payments)
                             : [];
@@ -872,74 +931,78 @@ app.patch("/api/services/:serviceId", authenticateUser, (req, res) => {
             .json({ error: "Date must be a valid ISO 8601 string." });
     }
 
-    // First, check if the service exists and belongs to the user
-    db.get(
-        "SELECT id, name, customer, notes, payments, price, tip, date, cycle_id AS cycleId, user_id AS userId FROM services WHERE id = ? AND user_id = ?",
-        [serviceId, userId],
-        (err, service) => {
-            if (err)
-                return res
-                    .status(500)
-                    .json({ error: "Error finding service: " + err.message });
-            if (!service)
-                return res
-                    .status(404)
-                    .json({ error: "Service not found or not owned by user." });
+    // Check if user is admin
+    const isAdmin = req.user.role === "admin";
 
-            // If cycleId is being changed, verify the new cycle exists
-            if (cycleId && cycleId !== service.cycleId) {
-                db.get(
-                    "SELECT id FROM cycles WHERE id = ?",
-                    [cycleId],
-                    (cycleErr, newCycle) => {
-                        if (cycleErr)
-                            return res
-                                .status(500)
-                                .json({
-                                    error:
-                                        "Error verifying new cycle: " +
-                                        cycleErr.message,
-                                });
-                        if (!newCycle)
-                            return res
-                                .status(400)
-                                .json({
-                                    error: "New cycleId provided does not exist.",
-                                });
-                        performServiceUpdate(
-                            service,
-                            {
-                                name,
-                                customer,
-                                notes,
-                                payments,
-                                price,
-                                tip,
-                                date,
-                                cycleId,
-                            },
-                            res
-                        );
-                    }
-                );
-            } else {
-                performServiceUpdate(
-                    service,
-                    {
-                        name,
-                        customer,
-                        notes,
-                        payments,
-                        price,
-                        tip,
-                        date,
-                        cycleId: cycleId || service.cycleId,
-                    },
-                    res
-                );
-            }
+    // First, check if the service exists and belongs to the user (or if admin, just check if it exists)
+    const query = isAdmin
+        ? "SELECT id, name, customer, notes, payments, price, tip, date, cycle_id AS cycleId, user_id AS userId FROM services WHERE id = ?"
+        : "SELECT id, name, customer, notes, payments, price, tip, date, cycle_id AS cycleId, user_id AS userId FROM services WHERE id = ? AND user_id = ?";
+    const params = isAdmin ? [serviceId] : [serviceId, userId];
+
+    db.get(query, params, (err, service) => {
+        if (err)
+            return res
+                .status(500)
+                .json({ error: "Error finding service: " + err.message });
+        if (!service)
+            return res.status(404).json({
+                error: isAdmin
+                    ? "Service not found."
+                    : "Service not found or not owned by user.",
+            });
+
+        // If cycleId is being changed, verify the new cycle exists
+        if (cycleId && cycleId !== service.cycleId) {
+            db.get(
+                "SELECT id FROM cycles WHERE id = ?",
+                [cycleId],
+                (cycleErr, newCycle) => {
+                    if (cycleErr)
+                        return res.status(500).json({
+                            error:
+                                "Error verifying new cycle: " +
+                                cycleErr.message,
+                        });
+                    if (!newCycle)
+                        return res.status(400).json({
+                            error: "New cycleId provided does not exist.",
+                        });
+                    performServiceUpdate(
+                        service,
+                        {
+                            name,
+                            customer,
+                            notes,
+                            payments,
+                            price,
+                            tip,
+                            date,
+                            cycleId,
+                        },
+                        isAdmin,
+                        res
+                    );
+                }
+            );
+        } else {
+            performServiceUpdate(
+                service,
+                {
+                    name,
+                    customer,
+                    notes,
+                    payments,
+                    price,
+                    tip,
+                    date,
+                    cycleId: cycleId || service.cycleId,
+                },
+                isAdmin,
+                res
+            );
         }
-    );
+    });
 });
 
 app.put("/api/services/:serviceId", authenticateUser, (req, res) => {
@@ -974,77 +1037,81 @@ app.put("/api/services/:serviceId", authenticateUser, (req, res) => {
             .json({ error: "Date must be a valid ISO 8601 string." });
     }
 
-    // First, check if the service exists and belongs to the user
-    db.get(
-        "SELECT id, name, customer, notes, payments, price, tip, date, cycle_id AS cycleId, user_id AS userId FROM services WHERE id = ? AND user_id = ?",
-        [serviceId, userId],
-        (err, service) => {
-            if (err)
-                return res
-                    .status(500)
-                    .json({ error: "Error finding service: " + err.message });
-            if (!service)
-                return res
-                    .status(404)
-                    .json({ error: "Service not found or not owned by user." });
+    // Check if user is admin
+    const isAdmin = req.user.role === "admin";
 
-            // If cycleId is being changed, verify the new cycle exists
-            if (cycleId && cycleId !== service.cycleId) {
-                db.get(
-                    "SELECT id FROM cycles WHERE id = ?",
-                    [cycleId],
-                    (cycleErr, newCycle) => {
-                        if (cycleErr)
-                            return res
-                                .status(500)
-                                .json({
-                                    error:
-                                        "Error verifying new cycle: " +
-                                        cycleErr.message,
-                                });
-                        if (!newCycle)
-                            return res
-                                .status(400)
-                                .json({
-                                    error: "New cycleId provided does not exist.",
-                                });
-                        performServiceUpdate(
-                            service,
-                            {
-                                name,
-                                customer,
-                                notes,
-                                payments,
-                                price,
-                                tip,
-                                date,
-                                cycleId,
-                            },
-                            res
-                        );
-                    }
-                );
-            } else {
-                performServiceUpdate(
-                    service,
-                    {
-                        name,
-                        customer,
-                        notes,
-                        payments,
-                        price,
-                        tip,
-                        date,
-                        cycleId: cycleId || service.cycleId,
-                    },
-                    res
-                );
-            }
+    // First, check if the service exists and belongs to the user (or if admin, just check if it exists)
+    const query = isAdmin
+        ? "SELECT id, name, customer, notes, payments, price, tip, date, cycle_id AS cycleId, user_id AS userId FROM services WHERE id = ?"
+        : "SELECT id, name, customer, notes, payments, price, tip, date, cycle_id AS cycleId, user_id AS userId FROM services WHERE id = ? AND user_id = ?";
+    const params = isAdmin ? [serviceId] : [serviceId, userId];
+
+    db.get(query, params, (err, service) => {
+        if (err)
+            return res
+                .status(500)
+                .json({ error: "Error finding service: " + err.message });
+        if (!service)
+            return res.status(404).json({
+                error: isAdmin
+                    ? "Service not found."
+                    : "Service not found or not owned by user.",
+            });
+
+        // If cycleId is being changed, verify the new cycle exists
+        if (cycleId && cycleId !== service.cycleId) {
+            db.get(
+                "SELECT id FROM cycles WHERE id = ?",
+                [cycleId],
+                (cycleErr, newCycle) => {
+                    if (cycleErr)
+                        return res.status(500).json({
+                            error:
+                                "Error verifying new cycle: " +
+                                cycleErr.message,
+                        });
+                    if (!newCycle)
+                        return res.status(400).json({
+                            error: "New cycleId provided does not exist.",
+                        });
+                    performServiceUpdate(
+                        service,
+                        {
+                            name,
+                            customer,
+                            notes,
+                            payments,
+                            price,
+                            tip,
+                            date,
+                            cycleId,
+                        },
+                        isAdmin,
+                        res
+                    );
+                }
+            );
+        } else {
+            performServiceUpdate(
+                service,
+                {
+                    name,
+                    customer,
+                    notes,
+                    payments,
+                    price,
+                    tip,
+                    date,
+                    cycleId: cycleId || service.cycleId,
+                },
+                isAdmin,
+                res
+            );
         }
-    );
+    });
 });
 
-function performServiceUpdate(currentService, updates, res) {
+function performServiceUpdate(currentService, updates, isAdmin, res) {
     const newName =
         updates.name !== undefined ? updates.name : currentService.name;
     const newCustomer =
@@ -1067,35 +1134,135 @@ function performServiceUpdate(currentService, updates, res) {
             : currentService.tip;
     const newDate =
         updates.date !== undefined ? updates.date : currentService.date;
-    const newCycleId =
-        updates.cycleId !== undefined
-            ? updates.cycleId
-            : currentService.cycleId || currentService.cycle_id;
 
-    const sql = `UPDATE services SET name = ?, customer = ?, notes = ?, payments = ?, price = ?, tip = ?, date = ?, cycle_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`;
-    const params = [
-        newName,
-        newCustomer,
-        newNotes,
-        newPayments,
-        newPrice,
-        newTip,
-        newDate,
+    // Extract date part (YYYY-MM-DD) from ISO string if needed
+    let serviceDateStr = newDate;
+    if (serviceDateStr && serviceDateStr.includes("T")) {
+        serviceDateStr = serviceDateStr.split("T")[0];
+    }
+
+    // Determine the correct cycleId
+    let newCycleId;
+    if (updates.cycleId !== undefined) {
+        // If cycleId is explicitly provided, use it (admin override)
+        newCycleId = updates.cycleId;
+    } else {
+        // If date changed, try to find the cycle that contains this date
+        // Otherwise, keep the current cycleId
+        newCycleId = currentService.cycleId || currentService.cycle_id;
+
+        // If date is being updated, find the matching cycle
+        if (updates.date !== undefined && serviceDateStr) {
+            // Find cycle that contains this date
+            db.get(
+                "SELECT id FROM cycles WHERE start_date <= ? AND end_date >= ? ORDER BY start_date DESC LIMIT 1",
+                [serviceDateStr, serviceDateStr],
+                (cycleErr, matchingCycle) => {
+                    if (!cycleErr && matchingCycle) {
+                        // Found a matching cycle - update the service with it
+                        const finalCycleId = String(matchingCycle.id);
+                        updateServiceWithCycleId(
+                            currentService,
+                            {
+                                name: newName,
+                                customer: newCustomer,
+                                notes: newNotes,
+                                payments: newPayments,
+                                price: newPrice,
+                                tip: newTip,
+                                date: newDate,
+                            },
+                            finalCycleId,
+                            isAdmin,
+                            res
+                        );
+                    } else {
+                        // No matching cycle found, use current cycleId or provided one
+                        updateServiceWithCycleId(
+                            currentService,
+                            {
+                                name: newName,
+                                customer: newCustomer,
+                                notes: newNotes,
+                                payments: newPayments,
+                                price: newPrice,
+                                tip: newTip,
+                                date: newDate,
+                            },
+                            newCycleId,
+                            isAdmin,
+                            res
+                        );
+                    }
+                }
+            );
+            return; // Exit early, update will happen in callback
+        }
+    }
+
+    // If we reach here, date wasn't updated or cycleId was explicitly provided
+    updateServiceWithCycleId(
+        currentService,
+        {
+            name: newName,
+            customer: newCustomer,
+            notes: newNotes,
+            payments: newPayments,
+            price: newPrice,
+            tip: newTip,
+            date: newDate,
+        },
         newCycleId,
-        currentService.id,
-        currentService.userId || currentService.user_id,
-    ];
+        isAdmin,
+        res
+    );
+}
+
+// Helper function to perform the actual database update
+function updateServiceWithCycleId(
+    currentService,
+    serviceData,
+    cycleId,
+    isAdmin,
+    res
+) {
+    // For admins, don't check user_id in WHERE clause; for regular users, ensure they own the service
+    const sql = isAdmin
+        ? `UPDATE services SET name = ?, customer = ?, notes = ?, payments = ?, price = ?, tip = ?, date = ?, cycle_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+        : `UPDATE services SET name = ?, customer = ?, notes = ?, payments = ?, price = ?, tip = ?, date = ?, cycle_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`;
+    const params = isAdmin
+        ? [
+              serviceData.name,
+              serviceData.customer,
+              serviceData.notes,
+              serviceData.payments,
+              serviceData.price,
+              serviceData.tip,
+              serviceData.date,
+              cycleId,
+              currentService.id,
+          ]
+        : [
+              serviceData.name,
+              serviceData.customer,
+              serviceData.notes,
+              serviceData.payments,
+              serviceData.price,
+              serviceData.tip,
+              serviceData.date,
+              cycleId,
+              currentService.id,
+              currentService.userId || currentService.user_id,
+          ];
     db.run(sql, params, function (err) {
         if (err)
             return res
                 .status(500)
                 .json({ error: "Failed to update service: " + err.message });
         if (this.changes === 0)
-            return res
-                .status(404)
-                .json({
-                    error: "Service not found, not owned, or no effective changes made.",
-                });
+            return res.status(404).json({
+                error: "Service not found, not owned, or no effective changes made.",
+            });
 
         db.get(
             "SELECT id, name, customer, notes, payments, price, tip, date, cycle_id as cycleId, user_id as userId FROM services WHERE id = ?",
@@ -1129,11 +1296,9 @@ app.delete("/api/services/:serviceId", authenticateUser, (req, res) => {
         [serviceId, userId],
         function (err) {
             if (err) {
-                return res
-                    .status(500)
-                    .json({
-                        error: "Failed to delete service: " + err.message,
-                    });
+                return res.status(500).json({
+                    error: "Failed to delete service: " + err.message,
+                });
             }
             if (this.changes === 0) {
                 return res
@@ -1182,11 +1347,9 @@ app.get("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
 
         db.all(sqlQuery, queryParams, (productErr, products) => {
             if (productErr)
-                return res
-                    .status(500)
-                    .json({
-                        error: "Error fetching products: " + productErr.message,
-                    });
+                return res.status(500).json({
+                    error: "Error fetching products: " + productErr.message,
+                });
 
             const processedProducts = (products || []).map((product) => {
                 let parsedPayments = [];
@@ -1209,11 +1372,15 @@ app.get("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
             // Product result
             if (processedProducts.length === 0) {
                 // Check if any products exist at all to help debugging
-                db.get("SELECT COUNT(*) as count FROM products", [], (countErr, result) => {
-                    if (!countErr) {
-                        // Total products count
+                db.get(
+                    "SELECT COUNT(*) as count FROM products",
+                    [],
+                    (countErr, result) => {
+                        if (!countErr) {
+                            // Total products count
+                        }
                     }
-                });
+                );
             }
 
             res.json(processedProducts);
@@ -1257,9 +1424,10 @@ app.get("/api/products/:productId", authenticateUser, (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    let sql = "SELECT id, name, notes, payments, price, date, cycle_id as cycleId, user_id as userId FROM products WHERE id = ?";
+    let sql =
+        "SELECT id, name, notes, payments, price, date, cycle_id as cycleId, user_id as userId FROM products WHERE id = ?";
     const params = [productId];
-    
+
     // Regular users can only view their own products
     if (userRole !== "admin") {
         sql += " AND user_id = ?";
@@ -1268,10 +1436,14 @@ app.get("/api/products/:productId", authenticateUser, (req, res) => {
 
     db.get(sql, params, (err, product) => {
         if (err) {
-            return res.status(500).json({ error: "Error fetching product: " + err.message });
+            return res
+                .status(500)
+                .json({ error: "Error fetching product: " + err.message });
         }
         if (!product) {
-            return res.status(404).json({ error: "Product not found or not accessible." });
+            return res
+                .status(404)
+                .json({ error: "Product not found or not accessible." });
         }
 
         // Parse payments JSON
@@ -1311,11 +1483,9 @@ app.post("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
         // Allow for optional Z, allow for optional milliseconds
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
             // Also allow YYYY-MM-DD if time is not included by client
-            return res
-                .status(400)
-                .json({
-                    error: "Date must be a valid ISO 8601 string (e.g., YYYY-MM-DD or YYYY-MM-DDTHH:mm:ssZ).",
-                });
+            return res.status(400).json({
+                error: "Date must be a valid ISO 8601 string (e.g., YYYY-MM-DD or YYYY-MM-DDTHH:mm:ssZ).",
+            });
         }
     }
 
@@ -1351,22 +1521,17 @@ app.post("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
             ],
             function (productErr) {
                 if (productErr)
-                    return res
-                        .status(500)
-                        .json({
-                            error:
-                                "Failed to add product: " + productErr.message,
-                        });
+                    return res.status(500).json({
+                        error: "Failed to add product: " + productErr.message,
+                    });
                 db.get(
                     "SELECT id, name, notes, payments, price, date, cycle_id as cycleId, user_id as userId FROM products WHERE id = ?",
                     [this.lastID],
                     (getErr, newProduct) => {
                         if (getErr || !newProduct)
-                            return res
-                                .status(500)
-                                .json({
-                                    error: "Failed to retrieve newly added product.",
-                                });
+                            return res.status(500).json({
+                                error: "Failed to retrieve newly added product.",
+                            });
                         newProduct.payments = newProduct.payments
                             ? JSON.parse(newProduct.payments)
                             : [];
@@ -1382,7 +1547,7 @@ app.post("/api/cycles/:cycleId/products", authenticateUser, (req, res) => {
 app.put("/api/products/:productId", authenticateUser, (req, res) => {
     const { productId } = req.params;
     const userId = req.user.id;
-    const { name, notes, payments, price, date, cycleId } = req.body; 
+    const { name, notes, payments, price, date, cycleId } = req.body;
 
     if (
         !name &&
@@ -1430,19 +1595,15 @@ app.put("/api/products/:productId", authenticateUser, (req, res) => {
                     [cycleId],
                     (cycleErr, newCycle) => {
                         if (cycleErr)
-                            return res
-                                .status(500)
-                                .json({
-                                    error:
-                                        "Error verifying new cycle: " +
-                                        cycleErr.message,
-                                });
+                            return res.status(500).json({
+                                error:
+                                    "Error verifying new cycle: " +
+                                    cycleErr.message,
+                            });
                         if (!newCycle)
-                            return res
-                                .status(400)
-                                .json({
-                                    error: "New cycleId provided does not exist.",
-                                });
+                            return res.status(400).json({
+                                error: "New cycleId provided does not exist.",
+                            });
                         performProductUpdate(
                             product,
                             {
@@ -1512,11 +1673,9 @@ function performProductUpdate(currentProduct, updates, res) {
                 .status(500)
                 .json({ error: "Failed to update product: " + err.message });
         if (this.changes === 0)
-            return res
-                .status(404)
-                .json({
-                    error: "Product not found, not owned, or no effective changes made.",
-                });
+            return res.status(404).json({
+                error: "Product not found, not owned, or no effective changes made.",
+            });
 
         db.get(
             "SELECT id, name, notes, payments, price, date, cycle_id as cycleId, user_id as userId FROM products WHERE id = ?",
@@ -1547,11 +1706,9 @@ app.delete("/api/products/:productId", authenticateUser, (req, res) => {
         [productId, userId],
         function (err) {
             if (err) {
-                return res
-                    .status(500)
-                    .json({
-                        error: "Failed to delete product: " + err.message,
-                    });
+                return res.status(500).json({
+                    error: "Failed to delete product: " + err.message,
+                });
             }
             if (this.changes === 0) {
                 return res

@@ -1,4 +1,4 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 
 // Define Cycle type
 export interface Cycle {
@@ -6,6 +6,7 @@ export interface Cycle {
     name: string;
     startDate?: string;
     endDate?: string;
+    notes?: string;
 }
 
 export interface CycleStats {
@@ -17,12 +18,12 @@ export interface CycleStats {
 
 // Create a base query with the API base URL
 const baseQuery = fetchBaseQuery({
-    baseUrl: '/api',
+    baseUrl: "/api",
     prepareHeaders: (headers) => {
-        if (typeof window !== 'undefined') {
-            const token = localStorage.getItem('token'); // Or 'salonToken' to be consistent
+        if (typeof window !== "undefined") {
+            const token = localStorage.getItem("token"); // Or 'salonToken' to be consistent
             if (token) {
-                headers.set('authorization', `Bearer ${token}`);
+                headers.set("authorization", `Bearer ${token}`);
             }
         }
         return headers;
@@ -31,37 +32,34 @@ const baseQuery = fetchBaseQuery({
 
 // Create API slice
 export const adminApi = createApi({
-    reducerPath: 'adminApi',
+    reducerPath: "adminApi",
     baseQuery,
-    tagTypes: ['Cycle'],
+    tagTypes: ["Cycle"],
     endpoints: (builder) => ({
         // Get all cycles for admin
         getAdminCycles: builder.query<Cycle[], void>({
-            query: () => '/admin/cycles',
+            query: () => "/admin/cycles",
             providesTags: (result) => {
-                if (!result) return [{ type: 'Cycle' as const, id: 'LIST' }];
+                if (!result) return [{ type: "Cycle" as const, id: "LIST" }];
                 return [
                     ...result.map((cycle) => ({
-                        type: 'Cycle' as const,
+                        type: "Cycle" as const,
                         id: String(cycle.id),
                     })),
-                    { type: 'Cycle' as const, id: 'LIST' },
+                    { type: "Cycle" as const, id: "LIST" },
                 ];
             },
         }),
-        
+
         // Get stats for a specific cycle
         getCycleStats: builder.query<CycleStats[], string>({
             query: (cycleId) => `/admin/cycles/${cycleId}/stats`,
             providesTags: (result, error, cycleId) => [
-                { type: 'Cycle' as const, id: String(cycleId) },
-                { type: 'Cycle' as const, id: 'STATS' },
+                { type: "Cycle" as const, id: String(cycleId) },
+                { type: "Cycle" as const, id: "STATS" },
             ],
         }),
     }),
 });
 
-export const {
-    useGetAdminCyclesQuery,
-    useGetCycleStatsQuery,
-} = adminApi;
+export const { useGetAdminCyclesQuery, useGetCycleStatsQuery } = adminApi;

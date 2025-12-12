@@ -8,7 +8,8 @@
         "start": "next start",
         "lint": "next lint",
         "server": "node server/server.js",
-        "dev:full": "concurrently \"npm run dev\" \"npm run server\" --kill-others-on-fail"
+        "dev:full": "concurrently \"npm run dev\" \"npm run server\" --kill-others-on-fail",
+        "migrate:services": "node scripts/migrate_services_to_correct_cycles.js"
     },
     "dependencies": {
         "@hookform/resolvers": "^3.9.0",

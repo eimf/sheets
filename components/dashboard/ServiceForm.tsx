@@ -29,7 +29,7 @@ import {
     NewService,
     Cycle,
 } from "@/lib/api";
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -281,67 +281,89 @@ export default function ServiceForm({
         if (cycleStartDate && cycleEndDate) {
             trigger("date");
         }
-    }, [cycleStartDate, cycleEndDate, trigger]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cycleStartDate, cycleEndDate]); // trigger is stable from react-hook-form
 
     const { fields, append, remove } = useFieldArray({
         control,
         name: "payments",
     });
 
+    // Track if we've reset for the current open state to prevent loops
+    const hasResetForOpenRef = useRef(false);
+    const lastServiceIdRef = useRef<string | null>(null);
+    const lastIsOpenRef = useRef(false);
+
     useEffect(() => {
         if (isOpen) {
-            if (service) {
-                reset({
-                    name: service.name,
-                    customer: service.customer || "",
-                    price: service?.price || 0,
-                    tip: service?.tip || 0,
-                    notes: service?.notes || "",
-                    payments:
-                        service.payments && service.payments.length > 0
-                            ? service.payments
-                            : [{ method: "card", amount: service.price }],
-                    date: service.date
-                        ? new Date(service.date).toISOString().split("T")[0]
-                        : "",
-                });
-                // Set cycle ID for editing - always set when allowCycleSelection is enabled
-                if (allowCycleSelection) {
+            const serviceId = service?.id ? String(service.id) : null;
+            const needsReset =
+                !lastIsOpenRef.current || // Dialog just opened
+                lastServiceIdRef.current !== serviceId; // Service changed
+
+            if (needsReset) {
+                if (service) {
+                    reset({
+                        name: service.name,
+                        customer: service.customer || "",
+                        price: service?.price || 0,
+                        tip: service?.tip || 0,
+                        notes: service?.notes || "",
+                        payments:
+                            service.payments && service.payments.length > 0
+                                ? service.payments
+                                : [{ method: "card", amount: service.price }],
+                        date: service.date
+                            ? new Date(service.date).toISOString().split("T")[0]
+                            : "",
+                    });
+                    // Set cycle ID for editing - always set when allowCycleSelection is enabled
+                    if (allowCycleSelection) {
+                        setSelectedCycleId(
+                            service.cycleId ||
+                                currentCycleId ||
+                                (availableCycles?.[0]
+                                    ? String(availableCycles[0].id)
+                                    : "")
+                        );
+                    }
+                } else {
+                    reset({
+                        name: "",
+                        customer: "",
+                        price: 0,
+                        tip: 0,
+                        notes: "",
+                        payments: [{ method: "card", amount: 0 }],
+                        date: new Date().toISOString().split("T")[0],
+                    });
                     setSelectedCycleId(
-                        service.cycleId ||
-                            currentCycleId ||
-                            (availableCycles?.[0]
-                                ? String(availableCycles[0].id)
-                                : "")
+                        allowCycleSelection
+                            ? currentCycleId ||
+                                  (availableCycles?.[0]
+                                      ? String(availableCycles[0].id)
+                                      : "")
+                            : currentCycleId
                     );
                 }
-            } else {
-                reset({
-                    name: "",
-                    customer: "",
-                    price: 0,
-                    tip: 0,
-                    notes: "",
-                    payments: [{ method: "card", amount: 0 }],
-                    date: new Date().toISOString().split("T")[0],
-                });
-                setSelectedCycleId(
-                    allowCycleSelection
-                        ? currentCycleId ||
-                              (availableCycles?.[0]
-                                  ? String(availableCycles[0].id)
-                                  : "")
-                        : currentCycleId
-                );
             }
+
+            // Update refs after reset
+            lastServiceIdRef.current = serviceId;
+            hasResetForOpenRef.current = true;
+        } else {
+            // Reset flags when dialog closes
+            hasResetForOpenRef.current = false;
+            lastServiceIdRef.current = null;
         }
+        lastIsOpenRef.current = isOpen;
     }, [
         service,
-        reset,
         isOpen,
         allowCycleSelection,
         currentCycleId,
         availableCycles,
+        reset,
     ]);
 
     // If cycle selection is enabled and no cycle is selected, default to the first available cycle
@@ -355,16 +377,23 @@ export default function ServiceForm({
     }, [isOpen, allowCycleSelection, selectedCycleId, availableCycles]);
 
     const paymentsWatch = useWatch({ control, name: "payments" });
+    const currentPriceRef = useRef<number>(0);
     useEffect(() => {
         const total = (paymentsWatch || []).reduce(
             (s, p) => s + (parseFloat(String(p.amount)) || 0),
             0
         );
-        setValue("price", Number.isFinite(total) ? total : 0, {
-            shouldValidate: false,
-            shouldDirty: true,
-        });
-    }, [paymentsWatch, setValue]);
+        const newPrice = Number.isFinite(total) ? total : 0;
+        // Only update if price actually changed to prevent loops
+        if (currentPriceRef.current !== newPrice) {
+            currentPriceRef.current = newPrice;
+            setValue("price", newPrice, {
+                shouldValidate: false,
+                shouldDirty: true,
+            });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paymentsWatch]); // setValue is stable from react-hook-form
 
     const onSubmit = async (data: ServiceFormData) => {
         // Final validation: ensure service date is within cycle date range (only for stylish users)
@@ -435,26 +464,85 @@ export default function ServiceForm({
         }
     };
 
+    // Store onClose in a ref to avoid dependency issues
+    const onCloseRef = useRef(onClose);
+    const isClosingRef = useRef(false);
+    const prevIsOpenRef = useRef(isOpen);
+
+    useEffect(() => {
+        onCloseRef.current = onClose;
+    }, [onClose]);
+
+    // Track previous isOpen to detect actual changes
+    useEffect(() => {
+        prevIsOpenRef.current = isOpen;
+        if (isOpen) {
+            isClosingRef.current = false;
+        }
+    }, [isOpen]);
+
     // Handle browser back button: close dialog instead of navigating away
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen) {
+            // Reset closing flag when dialog is closed
+            isClosingRef.current = false;
+            return;
+        }
+
+        // Reset closing flag when dialog opens
+        isClosingRef.current = false;
+
         const handlePopState = () => {
-            onClose();
-        };
-        // push a dummy state so the first back closes the dialog
-        window.history.pushState({ serviceModalOpen: true }, "");
-        window.addEventListener("popstate", handlePopState);
-        return () => {
-            window.removeEventListener("popstate", handlePopState);
-            // If we are closing the modal programmatically, remove the dummy state
-            if (window.history.state && window.history.state.serviceModalOpen) {
-                window.history.back();
+            if (!isClosingRef.current) {
+                isClosingRef.current = true;
+                onCloseRef.current();
             }
         };
-    }, [isOpen, onClose]);
+
+        // push a dummy state so the first back closes the dialog
+        const hasPushedState = window.history.state?.serviceModalOpen;
+        if (!hasPushedState) {
+            window.history.pushState({ serviceModalOpen: true }, "");
+        }
+
+        window.addEventListener("popstate", handlePopState);
+
+        return () => {
+            window.removeEventListener("popstate", handlePopState);
+            // Only go back if we pushed the state (check before cleanup runs)
+            // Use a flag to track if we need to clean up history
+            const shouldCleanupHistory = window.history.state?.serviceModalOpen;
+            if (shouldCleanupHistory) {
+                // Use setTimeout to avoid state updates during render
+                setTimeout(() => {
+                    // Double-check the state still exists before going back
+                    if (window.history.state?.serviceModalOpen) {
+                        window.history.back();
+                    }
+                }, 0);
+            }
+        };
+    }, [isOpen]);
+
+    // Memoize onOpenChange to prevent unnecessary re-renders
+    // Only call onClose if dialog is actually open and being closed by user action
+    const handleOpenChange = useCallback(
+        (open: boolean) => {
+            // Only respond if:
+            // 1. Dialog is being closed (open === false)
+            // 2. Dialog was actually open (prevIsOpenRef.current === true, not just isOpen)
+            // 3. We're not already closing
+            // This prevents responding to stale callbacks or duplicate events
+            if (!open && prevIsOpenRef.current && !isClosingRef.current) {
+                isClosingRef.current = true;
+                onCloseRef.current();
+            }
+        },
+        [] // No dependencies - uses refs that are always current
+    );
 
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+        <Dialog open={isOpen} onOpenChange={handleOpenChange}>
             <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader className="sticky top-0 z-20 bg-white border-b flex flex-col gap-2 py-2 px-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -493,7 +581,7 @@ export default function ServiceForm({
                 >
                     {allowCycleSelection && availableCycles.length > 0 && (
                         <div>
-                            <Label htmlFor="cycle">Cycle</Label>
+                            <Label id="cycle-label">Cycle</Label>
                             <Select
                                 value={selectedCycleId}
                                 onValueChange={(newCycleId) => {
@@ -502,7 +590,11 @@ export default function ServiceForm({
                                     setTimeout(() => trigger("date"), 100);
                                 }}
                             >
-                                <SelectTrigger>
+                                <SelectTrigger
+                                    id="cycle-select"
+                                    name="cycle"
+                                    aria-labelledby="cycle-label"
+                                >
                                     <SelectValue placeholder="Select a cycle" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -522,6 +614,8 @@ export default function ServiceForm({
                         <Label htmlFor="name">Service</Label>
                         <Input
                             id="name"
+                            name="name"
+                            autoComplete="off"
                             {...register("name")}
                             placeholder="e.g., Haircut"
                         />
@@ -535,6 +629,8 @@ export default function ServiceForm({
                         <Label htmlFor="customer">Customer</Label>
                         <Input
                             id="customer"
+                            name="customer"
+                            autoComplete="name"
                             {...register("customer")}
                             placeholder="e.g., John Doe"
                         />
@@ -549,8 +645,10 @@ export default function ServiceForm({
                             <Label htmlFor="tip">Tip</Label>
                             <Input
                                 id="tip"
+                                name="tip"
                                 type="number"
                                 step="0.01"
+                                autoComplete="off"
                                 {...register("tip")}
                                 placeholder="e.g., 10.00"
                             />
@@ -561,7 +659,7 @@ export default function ServiceForm({
                             )}
                         </div>
                         <div>
-                            <Label htmlFor="date">Date</Label>
+                            <Label id="date-label">Date</Label>
                             <Controller
                                 name="date"
                                 control={control}
@@ -618,52 +716,65 @@ export default function ServiceForm({
                                             : undefined;
 
                                     return (
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    variant="outline"
-                                                    className={cn(
-                                                        "w-full justify-start text-left font-normal",
-                                                        !dateValue &&
-                                                            "text-muted-foreground"
-                                                    )}
+                                        <>
+                                            <input
+                                                type="hidden"
+                                                id="date"
+                                                name="date"
+                                                value={field.value || ""}
+                                                autoComplete="off"
+                                            />
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        aria-labelledby="date-label"
+                                                        className={cn(
+                                                            "w-full justify-start text-left font-normal",
+                                                            !dateValue &&
+                                                                "text-muted-foreground"
+                                                        )}
+                                                    >
+                                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                                        {dateValue ? (
+                                                            format(
+                                                                dateValue,
+                                                                "MM/dd/yy"
+                                                            )
+                                                        ) : (
+                                                            <span>
+                                                                Pick a date
+                                                            </span>
+                                                        )}
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent
+                                                    className="w-auto p-0"
+                                                    align="start"
                                                 >
-                                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                                    {dateValue ? (
-                                                        format(
-                                                            dateValue,
-                                                            "MM/dd/yy"
-                                                        )
-                                                    ) : (
-                                                        <span>Pick a date</span>
-                                                    )}
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent
-                                                className="w-auto p-0"
-                                                align="start"
-                                            >
-                                                <Calendar
-                                                    mode="single"
-                                                    selected={dateValue}
-                                                    onSelect={(date) => {
-                                                        if (date) {
-                                                            const dateStr =
-                                                                format(
-                                                                    date,
-                                                                    "yyyy-MM-dd"
+                                                    <Calendar
+                                                        mode="single"
+                                                        selected={dateValue}
+                                                        onSelect={(date) => {
+                                                            if (date) {
+                                                                const dateStr =
+                                                                    format(
+                                                                        date,
+                                                                        "yyyy-MM-dd"
+                                                                    );
+                                                                field.onChange(
+                                                                    dateStr
                                                                 );
-                                                            field.onChange(
-                                                                dateStr
-                                                            );
-                                                            trigger("date");
-                                                        }
-                                                    }}
-                                                    disabled={disabledDates}
-                                                    initialFocus
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
+                                                                trigger("date");
+                                                            }
+                                                        }}
+                                                        disabled={disabledDates}
+                                                        initialFocus
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
+                                        </>
                                     );
                                 }}
                             />
@@ -683,8 +794,10 @@ export default function ServiceForm({
                             <Label htmlFor="price">Price</Label>
                             <Input
                                 id="price"
+                                name="price"
                                 type="number"
                                 step="0.01"
+                                autoComplete="off"
                                 {...register("price")}
                                 disabled
                                 className="bg-gray-100 cursor-not-allowed"
@@ -693,12 +806,17 @@ export default function ServiceForm({
                     </div>
                     {/* Payments Section */}
                     <div>
-                        <Label>Payment Methods</Label>
+                        <div className="text-sm font-medium leading-none mb-2">
+                            Payment Methods
+                        </div>
                         {paymentMethods.map((pm) => {
                             const idx = fields.findIndex(
                                 (f) => f.method === pm.value
                             );
                             const checked = idx !== -1;
+                            const checkboxId = `payment-${pm.value}`;
+                            const amountId = `payment-${pm.value}-amount`;
+                            const labelId = `payment-${pm.value}-label`;
                             return (
                                 <div
                                     key={pm.value}
@@ -706,6 +824,8 @@ export default function ServiceForm({
                                 >
                                     <input
                                         type="checkbox"
+                                        id={checkboxId}
+                                        name={`payment-${pm.value}`}
                                         checked={checked}
                                         onChange={(e) => {
                                             if (e.target.checked) {
@@ -719,12 +839,20 @@ export default function ServiceForm({
                                             }
                                         }}
                                     />
-                                    <span>{pm.label}</span>
+                                    <Label
+                                        htmlFor={checkboxId}
+                                        className="cursor-pointer"
+                                    >
+                                        {pm.label}
+                                    </Label>
                                     {checked && (
                                         <>
                                             <Input
+                                                id={amountId}
+                                                name={`payments.${idx}.amount`}
                                                 type="number"
                                                 step="0.01"
+                                                autoComplete="off"
                                                 className="w-24 ml-2"
                                                 {...register(
                                                     `payments.${idx}.amount` as const
@@ -733,6 +861,9 @@ export default function ServiceForm({
                                             />
                                             {pm.value === "other" && (
                                                 <Input
+                                                    id={labelId}
+                                                    name={`payments.${idx}.label`}
+                                                    autoComplete="off"
                                                     className="ml-2"
                                                     placeholder="Specify method"
                                                     {...register(
@@ -755,6 +886,8 @@ export default function ServiceForm({
                         <Label htmlFor="notes">Notes</Label>
                         <Textarea
                             id="notes"
+                            name="notes"
+                            autoComplete="off"
                             {...register("notes")}
                             placeholder="Optional notes about the service"
                             rows={3}

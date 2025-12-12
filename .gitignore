@@ -37,6 +37,7 @@ next-env.d.ts
 
 # SQLite database directory
 server/data/
+db/
 
 # Server-specific files (e.g., logs, uploads, etc.)
 server/logs/

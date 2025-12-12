@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { skipToken } from "@reduxjs/toolkit/query";
 import {
     useGetCyclesQuery,
     useCreateCycleMutation,
     useGetServicesQuery,
     Cycle,
-    NewCycle, // Added NewCycle import
+    NewCycle,
 } from "@/lib/api";
 import {
     Select,
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import CreateCycleForm from "@/components/dashboard/CreateCycleForm";
+import CycleNotesDialog from "@/components/dashboard/CycleNotesDialog";
 import { toast } from "sonner";
 import { useSelector } from "react-redux";
 import { selectAuth } from "@/lib/slices/authSlice";
@@ -28,16 +29,13 @@ interface CycleManagerProps {
     showCreateButton?: boolean;
 }
 
-import { useState } from "react"; // Added useState
-
-// ... (other imports remain the same)
-
 export default function CycleManager({
     currentCycleId,
     onCycleChange,
     showCreateButton = true,
 }: CycleManagerProps) {
     const [isCreateCycleFormOpen, setIsCreateCycleFormOpen] = useState(false);
+    const [isNotesDialogOpen, setIsNotesDialogOpen] = useState(false);
     const [addCycle, { isLoading: isAddingCycle }] = useCreateCycleMutation();
 
     const handleCreateCycle = async (cycleData: Omit<Cycle, "id">) => {
@@ -93,19 +91,53 @@ export default function CycleManager({
         });
     };
 
-    // Automatically select latest cycle for 'user' role (stylish should always see the latest cycle)
+    // Automatically select the current cycle for 'user' role (stylish should see the cycle that contains today's date)
     useEffect(() => {
         if (isUserRole && cycles && cycles.length > 0) {
-            // Cycles are ordered by start_date DESC from the API, so cycles[0] is the latest
-            const latestCycle = cycles[0];
-            
-            // Always select the latest cycle for user role, regardless of currentCycleId
-            // This ensures stylish users always see the most recent cycle, even if localStorage has an old value
-            if (latestCycle && String(latestCycle.id) !== String(currentCycleId)) {
-                console.log(
-                    `[DEBUG] User role - Selecting latest cycle: ${latestCycle.id} (${latestCycle.startDate} - ${latestCycle.endDate})`
+            // Get today's date in CST timezone (America/Chicago)
+            // This ensures we're comparing dates correctly regardless of the user's local timezone
+            // Use Intl.DateTimeFormat to extract date parts directly, avoiding unreliable string parsing
+            const now = new Date();
+            const cstFormatter = new Intl.DateTimeFormat("en-US", {
+                timeZone: "America/Chicago",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+            });
+            const parts = cstFormatter.formatToParts(now);
+            const year = parts.find((p) => p.type === "year")?.value || "";
+            const month = parts.find((p) => p.type === "month")?.value || "";
+            const day = parts.find((p) => p.type === "day")?.value || "";
+            const todayDateString = `${year}-${month}-${day}`;
+
+            // Find the cycle that contains today's date (startDate <= today <= endDate)
+            const currentCycle = cycles.find((cycle: Cycle) => {
+                if (!cycle.startDate || !cycle.endDate) return false;
+                // Compare date strings directly (YYYY-MM-DD format allows string comparison)
+                return (
+                    cycle.startDate <= todayDateString &&
+                    cycle.endDate >= todayDateString
                 );
-                onCycleChange(latestCycle.id);
+            });
+
+            // If no cycle contains today's date, fall back to the latest cycle by start_date
+            const cycleToSelect = currentCycle || cycles[0];
+
+            // Only update if the selected cycle is different from the current one
+            if (
+                cycleToSelect &&
+                String(cycleToSelect.id) !== String(currentCycleId)
+            ) {
+                console.log(
+                    `[DEBUG] User role - Selecting ${
+                        currentCycle ? "current" : "latest"
+                    } cycle: ${cycleToSelect.id} (${
+                        cycleToSelect.startDate
+                    } - ${
+                        cycleToSelect.endDate
+                    }), today (CST): ${todayDateString}`
+                );
+                onCycleChange(cycleToSelect.id);
             }
         }
     }, [isUserRole, cycles, currentCycleId, onCycleChange]);
@@ -169,6 +201,11 @@ export default function CycleManager({
         );
     }
 
+    // Get current cycle for notes display
+    const currentCycle = cycles?.find(
+        (c: Cycle) => String(c.id) === String(currentCycleId)
+    );
+
     // Admin role UI: Cycle selector and create button
     return (
         <div className="space-y-4">
@@ -213,7 +250,39 @@ export default function CycleManager({
                         New Cycle
                     </Button>
                 )}
+                {currentCycleId && (
+                    <Button
+                        onClick={() => setIsNotesDialogOpen(true)}
+                        variant="outline"
+                        className="w-full sm:w-auto"
+                    >
+                        {currentCycle?.notes ? "Edit Notes" : "Add Notes"}
+                    </Button>
+                )}
             </div>
+            {/* Display cycle notes if they exist */}
+            {currentCycle?.notes && (
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                                Cycle Notes:
+                            </h3>
+                            <p className="text-sm text-blue-800 dark:text-blue-200 whitespace-pre-wrap">
+                                {currentCycle.notes}
+                            </p>
+                        </div>
+                        <Button
+                            onClick={() => setIsNotesDialogOpen(true)}
+                            variant="ghost"
+                            size="sm"
+                            className="ml-2 text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100"
+                        >
+                            Edit
+                        </Button>
+                    </div>
+                </div>
+            )}
             {isCreateCycleFormOpen && (
                 <CreateCycleForm
                     onSubmit={async (data: NewCycle) => {
@@ -225,6 +294,11 @@ export default function CycleManager({
                     isLoading={isAddingCycle}
                 />
             )}
+            <CycleNotesDialog
+                cycle={currentCycle || null}
+                isOpen={isNotesDialogOpen}
+                onClose={() => setIsNotesDialogOpen(false)}
+            />
             {currentCycleId && servicesForCycle && (
                 <div className="mt-2 w-full flex flex-nowrap items-center justify-between bg-gray-50 dark:bg-gray-800/50 px-3 py-2 rounded-md">
                     <div className="flex items-center whitespace-nowrap pr-2">

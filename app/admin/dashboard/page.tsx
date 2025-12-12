@@ -11,13 +11,17 @@ import {
     useGetCycleStatsQuery,
     useGetServicesForUserQuery,
     useGetProductsForUserQuery,
+    useGetAdminCyclesQuery,
     type CycleStats,
     type Service,
     type Product,
     type PaymentDetail,
+    type Cycle,
 } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { skipToken } from "@reduxjs/toolkit/query";
+import ServiceForm from "@/components/dashboard/ServiceForm";
+import { Button } from "@/components/ui/button";
 
 export default function AdminDashboardPage() {
     const router = useRouter();
@@ -40,6 +44,30 @@ export default function AdminDashboardPage() {
     const [expandedServiceId, setExpandedServiceId] = useState<string | null>(
         null
     );
+    const [editingService, setEditingService] = useState<Service | null>(null);
+    const [isServiceFormOpen, setIsServiceFormOpen] = useState(false);
+
+    // Sorting state for main stats table
+    const [statsSortColumn, setStatsSortColumn] = useState<string | null>(null);
+    const [statsSortDirection, setStatsSortDirection] = useState<
+        "asc" | "desc"
+    >("asc");
+
+    // Sorting state for services table
+    const [servicesSortColumn, setServicesSortColumn] = useState<string | null>(
+        null
+    );
+    const [servicesSortDirection, setServicesSortDirection] = useState<
+        "asc" | "desc"
+    >("asc");
+
+    // Sorting state for products table
+    const [productsSortColumn, setProductsSortColumn] = useState<string | null>(
+        null
+    );
+    const [productsSortDirection, setProductsSortDirection] = useState<
+        "asc" | "desc"
+    >("asc");
 
     // Save cycle selection to localStorage whenever it changes
     useEffect(() => {
@@ -69,6 +97,9 @@ export default function AdminDashboardPage() {
     const { data: cycleStats, isLoading: isLoadingStats } =
         useGetCycleStatsQuery(currentCycleId || "", { skip: !currentCycleId });
 
+    // Fetch all cycles for admin (for cycle selection in edit form)
+    const { data: allCycles = [] } = useGetAdminCyclesQuery();
+
     useEffect(() => {
         if (!loading && !isAuthenticated) {
             router.push("/login");
@@ -76,6 +107,171 @@ export default function AdminDashboardPage() {
             router.push("/dashboard");
         }
     }, [isAuthenticated, loading, router, user]);
+
+    // Sorting helper functions
+    const handleStatsSort = (column: string) => {
+        if (statsSortColumn === column) {
+            setStatsSortDirection(
+                statsSortDirection === "asc" ? "desc" : "asc"
+            );
+        } else {
+            setStatsSortColumn(column);
+            setStatsSortDirection("asc");
+        }
+    };
+
+    const handleServicesSort = (column: string) => {
+        if (servicesSortColumn === column) {
+            setServicesSortDirection(
+                servicesSortDirection === "asc" ? "desc" : "asc"
+            );
+        } else {
+            setServicesSortColumn(column);
+            setServicesSortDirection("asc");
+        }
+    };
+
+    const handleProductsSort = (column: string) => {
+        if (productsSortColumn === column) {
+            setProductsSortDirection(
+                productsSortDirection === "asc" ? "desc" : "asc"
+            );
+        } else {
+            setProductsSortColumn(column);
+            setProductsSortDirection("asc");
+        }
+    };
+
+    // Sort stats data
+    const sortedStats = cycleStats
+        ? [...cycleStats].sort((a, b) => {
+              if (!statsSortColumn) return 0;
+
+              let aValue: any;
+              let bValue: any;
+
+              switch (statsSortColumn) {
+                  case "stylist":
+                      aValue = a.stylish?.toLowerCase() || "";
+                      bValue = b.stylish?.toLowerCase() || "";
+                      break;
+                  case "total_services":
+                      aValue = a.total_service_price || 0;
+                      bValue = b.total_service_price || 0;
+                      break;
+                  case "total_products":
+                      aValue = a.total_product_price || 0;
+                      bValue = b.total_product_price || 0;
+                      break;
+                  case "total_tips":
+                      aValue = a.total_tips || 0;
+                      bValue = b.total_tips || 0;
+                      break;
+                  case "service_count":
+                      aValue = a.service_count || 0;
+                      bValue = b.service_count || 0;
+                      break;
+                  case "product_count":
+                      aValue = a.product_count || 0;
+                      bValue = b.product_count || 0;
+                      break;
+                  default:
+                      return 0;
+              }
+
+              if (typeof aValue === "string") {
+                  return statsSortDirection === "asc"
+                      ? aValue.localeCompare(bValue)
+                      : bValue.localeCompare(aValue);
+              } else {
+                  return statsSortDirection === "asc"
+                      ? aValue - bValue
+                      : bValue - aValue;
+              }
+          })
+        : [];
+
+    // Sort services data
+    const sortedServices = stylistServices
+        ? [...stylistServices].sort((a, b) => {
+              if (!servicesSortColumn) return 0;
+
+              let aValue: any;
+              let bValue: any;
+
+              switch (servicesSortColumn) {
+                  case "service":
+                      aValue = a.name?.toLowerCase() || "";
+                      bValue = b.name?.toLowerCase() || "";
+                      break;
+                  case "customer":
+                      aValue = (a.customer || "").toLowerCase();
+                      bValue = (b.customer || "").toLowerCase();
+                      break;
+                  case "price":
+                      aValue = a.price || 0;
+                      bValue = b.price || 0;
+                      break;
+                  case "tip":
+                      aValue = a.tip || 0;
+                      bValue = b.tip || 0;
+                      break;
+                  case "date":
+                      aValue = new Date(a.date).getTime();
+                      bValue = new Date(b.date).getTime();
+                      break;
+                  default:
+                      return 0;
+              }
+
+              if (typeof aValue === "string") {
+                  return servicesSortDirection === "asc"
+                      ? aValue.localeCompare(bValue)
+                      : bValue.localeCompare(aValue);
+              } else {
+                  return servicesSortDirection === "asc"
+                      ? aValue - bValue
+                      : bValue - aValue;
+              }
+          })
+        : [];
+
+    // Sort products data
+    const sortedProducts = stylistProducts
+        ? [...stylistProducts].sort((a, b) => {
+              if (!productsSortColumn) return 0;
+
+              let aValue: any;
+              let bValue: any;
+
+              switch (productsSortColumn) {
+                  case "product":
+                      aValue = a.name?.toLowerCase() || "";
+                      bValue = b.name?.toLowerCase() || "";
+                      break;
+                  case "price":
+                      aValue = a.price || 0;
+                      bValue = b.price || 0;
+                      break;
+                  case "date":
+                      aValue = new Date(a.date).getTime();
+                      bValue = new Date(b.date).getTime();
+                      break;
+                  default:
+                      return 0;
+              }
+
+              if (typeof aValue === "string") {
+                  return productsSortDirection === "asc"
+                      ? aValue.localeCompare(bValue)
+                      : bValue.localeCompare(aValue);
+              } else {
+                  return productsSortDirection === "asc"
+                      ? aValue - bValue
+                      : bValue - aValue;
+              }
+          })
+        : [];
 
     if (loading || !isAuthenticated) {
         return (
@@ -115,28 +311,144 @@ export default function AdminDashboardPage() {
                                     <table className="min-w-full divide-y divide-gray-200">
                                         <thead className="bg-gray-50">
                                             <tr>
-                                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Stylist
+                                                <th
+                                                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                    onClick={() =>
+                                                        handleStatsSort(
+                                                            "stylist"
+                                                        )
+                                                    }
+                                                >
+                                                    <div className="flex items-center space-x-1">
+                                                        <span>Stylist</span>
+                                                        {statsSortColumn ===
+                                                            "stylist" && (
+                                                            <span>
+                                                                {statsSortDirection ===
+                                                                "asc"
+                                                                    ? "↑"
+                                                                    : "↓"}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </th>
-                                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Total of Services
+                                                <th
+                                                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                    onClick={() =>
+                                                        handleStatsSort(
+                                                            "total_services"
+                                                        )
+                                                    }
+                                                >
+                                                    <div className="flex items-center justify-end space-x-1">
+                                                        <span>
+                                                            Total of Services
+                                                        </span>
+                                                        {statsSortColumn ===
+                                                            "total_services" && (
+                                                            <span>
+                                                                {statsSortDirection ===
+                                                                "asc"
+                                                                    ? "↑"
+                                                                    : "↓"}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </th>
-                                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Total of Products
+                                                <th
+                                                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                    onClick={() =>
+                                                        handleStatsSort(
+                                                            "total_products"
+                                                        )
+                                                    }
+                                                >
+                                                    <div className="flex items-center justify-end space-x-1">
+                                                        <span>
+                                                            Total of Products
+                                                        </span>
+                                                        {statsSortColumn ===
+                                                            "total_products" && (
+                                                            <span>
+                                                                {statsSortDirection ===
+                                                                "asc"
+                                                                    ? "↑"
+                                                                    : "↓"}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </th>
-                                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    Total Tips
+                                                <th
+                                                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                    onClick={() =>
+                                                        handleStatsSort(
+                                                            "total_tips"
+                                                        )
+                                                    }
+                                                >
+                                                    <div className="flex items-center justify-end space-x-1">
+                                                        <span>Total Tips</span>
+                                                        {statsSortColumn ===
+                                                            "total_tips" && (
+                                                            <span>
+                                                                {statsSortDirection ===
+                                                                "asc"
+                                                                    ? "↑"
+                                                                    : "↓"}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </th>
-                                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    # of Services
+                                                <th
+                                                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                    onClick={() =>
+                                                        handleStatsSort(
+                                                            "service_count"
+                                                        )
+                                                    }
+                                                >
+                                                    <div className="flex items-center justify-end space-x-1">
+                                                        <span>
+                                                            # of Services
+                                                        </span>
+                                                        {statsSortColumn ===
+                                                            "service_count" && (
+                                                            <span>
+                                                                {statsSortDirection ===
+                                                                "asc"
+                                                                    ? "↑"
+                                                                    : "↓"}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </th>
-                                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                    # of Products
+                                                <th
+                                                    className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                    onClick={() =>
+                                                        handleStatsSort(
+                                                            "product_count"
+                                                        )
+                                                    }
+                                                >
+                                                    <div className="flex items-center justify-end space-x-1">
+                                                        <span>
+                                                            # of Products
+                                                        </span>
+                                                        {statsSortColumn ===
+                                                            "product_count" && (
+                                                            <span>
+                                                                {statsSortDirection ===
+                                                                "asc"
+                                                                    ? "↑"
+                                                                    : "↓"}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </th>
                                             </tr>
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200">
-                                            {cycleStats
+                                            {sortedStats
                                                 .filter(
                                                     (stat: CycleStats) =>
                                                         stat.service_count >
@@ -209,59 +521,199 @@ export default function AdminDashboardPage() {
                                             <table className="min-w-full divide-y divide-gray-200">
                                                 <thead className="bg-gray-50">
                                                     <tr>
-                                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Service
+                                                        <th
+                                                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                            onClick={() =>
+                                                                handleServicesSort(
+                                                                    "service"
+                                                                )
+                                                            }
+                                                        >
+                                                            <div className="flex items-center space-x-1">
+                                                                <span>
+                                                                    Service
+                                                                </span>
+                                                                {servicesSortColumn ===
+                                                                    "service" && (
+                                                                    <span>
+                                                                        {servicesSortDirection ===
+                                                                        "asc"
+                                                                            ? "↑"
+                                                                            : "↓"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th
+                                                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                            onClick={() =>
+                                                                handleServicesSort(
+                                                                    "customer"
+                                                                )
+                                                            }
+                                                        >
+                                                            <div className="flex items-center space-x-1">
+                                                                <span>
+                                                                    Customer
+                                                                </span>
+                                                                {servicesSortColumn ===
+                                                                    "customer" && (
+                                                                    <span>
+                                                                        {servicesSortDirection ===
+                                                                        "asc"
+                                                                            ? "↑"
+                                                                            : "↓"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th
+                                                            className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                            onClick={() =>
+                                                                handleServicesSort(
+                                                                    "price"
+                                                                )
+                                                            }
+                                                        >
+                                                            <div className="flex items-center justify-end space-x-1">
+                                                                <span>
+                                                                    Price
+                                                                </span>
+                                                                {servicesSortColumn ===
+                                                                    "price" && (
+                                                                    <span>
+                                                                        {servicesSortDirection ===
+                                                                        "asc"
+                                                                            ? "↑"
+                                                                            : "↓"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th
+                                                            className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                            onClick={() =>
+                                                                handleServicesSort(
+                                                                    "tip"
+                                                                )
+                                                            }
+                                                        >
+                                                            <div className="flex items-center justify-end space-x-1">
+                                                                <span>Tip</span>
+                                                                {servicesSortColumn ===
+                                                                    "tip" && (
+                                                                    <span>
+                                                                        {servicesSortDirection ===
+                                                                        "asc"
+                                                                            ? "↑"
+                                                                            : "↓"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </th>
+                                                        <th
+                                                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                            onClick={() =>
+                                                                handleServicesSort(
+                                                                    "date"
+                                                                )
+                                                            }
+                                                        >
+                                                            <div className="flex items-center space-x-1">
+                                                                <span>
+                                                                    Date
+                                                                </span>
+                                                                {servicesSortColumn ===
+                                                                    "date" && (
+                                                                    <span>
+                                                                        {servicesSortDirection ===
+                                                                        "asc"
+                                                                            ? "↑"
+                                                                            : "↓"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </th>
                                                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Customer
-                                                        </th>
-                                                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Price
-                                                        </th>
-                                                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Tip
-                                                        </th>
-                                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Date
+                                                            Actions
                                                         </th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="bg-white divide-y divide-gray-200">
-                                                    {stylistServices.map(
+                                                    {sortedServices.map(
                                                         (svc: Service) => (
                                                             <Fragment
                                                                 key={svc.id}
                                                             >
-                                                                <tr
-                                                                    className="cursor-pointer hover:bg-gray-50"
-                                                                    onClick={() =>
-                                                                        setExpandedServiceId(
-                                                                            (
-                                                                                prev
-                                                                            ) =>
-                                                                                prev ===
-                                                                                svc.id
-                                                                                    ? null
-                                                                                    : svc.id
-                                                                        )
-                                                                    }
-                                                                >
-                                                                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                                                                <tr className="hover:bg-gray-50">
+                                                                    <td
+                                                                        className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 cursor-pointer"
+                                                                        onClick={() =>
+                                                                            setExpandedServiceId(
+                                                                                (
+                                                                                    prev
+                                                                                ) =>
+                                                                                    prev ===
+                                                                                    svc.id
+                                                                                        ? null
+                                                                                        : svc.id
+                                                                            )
+                                                                        }
+                                                                    >
                                                                         {
                                                                             svc.name
                                                                         }
                                                                     </td>
-                                                                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                                                                    <td
+                                                                        className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 cursor-pointer"
+                                                                        onClick={() =>
+                                                                            setExpandedServiceId(
+                                                                                (
+                                                                                    prev
+                                                                                ) =>
+                                                                                    prev ===
+                                                                                    svc.id
+                                                                                        ? null
+                                                                                        : svc.id
+                                                                            )
+                                                                        }
+                                                                    >
                                                                         {svc.customer ||
                                                                             "-"}
                                                                     </td>
-                                                                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 text-right">
+                                                                    <td
+                                                                        className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 text-right cursor-pointer"
+                                                                        onClick={() =>
+                                                                            setExpandedServiceId(
+                                                                                (
+                                                                                    prev
+                                                                                ) =>
+                                                                                    prev ===
+                                                                                    svc.id
+                                                                                        ? null
+                                                                                        : svc.id
+                                                                            )
+                                                                        }
+                                                                    >
                                                                         $
                                                                         {svc.price.toFixed(
                                                                             2
                                                                         )}
                                                                     </td>
-                                                                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 text-right">
+                                                                    <td
+                                                                        className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 text-right cursor-pointer"
+                                                                        onClick={() =>
+                                                                            setExpandedServiceId(
+                                                                                (
+                                                                                    prev
+                                                                                ) =>
+                                                                                    prev ===
+                                                                                    svc.id
+                                                                                        ? null
+                                                                                        : svc.id
+                                                                            )
+                                                                        }
+                                                                    >
                                                                         $
                                                                         {(
                                                                             svc.tip ||
@@ -270,10 +722,46 @@ export default function AdminDashboardPage() {
                                                                             2
                                                                         )}
                                                                     </td>
-                                                                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                                                                    <td
+                                                                        className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 cursor-pointer"
+                                                                        onClick={() =>
+                                                                            setExpandedServiceId(
+                                                                                (
+                                                                                    prev
+                                                                                ) =>
+                                                                                    prev ===
+                                                                                    svc.id
+                                                                                        ? null
+                                                                                        : svc.id
+                                                                            )
+                                                                        }
+                                                                    >
                                                                         {new Date(
                                                                             svc.date
                                                                         ).toLocaleDateString()}
+                                                                    </td>
+                                                                    <td
+                                                                        className="px-4 py-2 whitespace-nowrap text-sm"
+                                                                        onClick={(
+                                                                            e
+                                                                        ) =>
+                                                                            e.stopPropagation()
+                                                                        }
+                                                                    >
+                                                                        <Button
+                                                                            variant="outline"
+                                                                            size="sm"
+                                                                            onClick={() => {
+                                                                                setEditingService(
+                                                                                    svc
+                                                                                );
+                                                                                setIsServiceFormOpen(
+                                                                                    true
+                                                                                );
+                                                                            }}
+                                                                        >
+                                                                            Edit
+                                                                        </Button>
                                                                     </td>
                                                                 </tr>
 
@@ -282,7 +770,7 @@ export default function AdminDashboardPage() {
                                                                     <tr className="bg-gray-50">
                                                                         <td
                                                                             colSpan={
-                                                                                5
+                                                                                6
                                                                             }
                                                                             className="px-4 py-4 text-sm text-gray-700"
                                                                         >
@@ -466,19 +954,79 @@ export default function AdminDashboardPage() {
                                             <table className="min-w-full divide-y divide-gray-200">
                                                 <thead className="bg-gray-50">
                                                     <tr>
-                                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Product
+                                                        <th
+                                                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                            onClick={() =>
+                                                                handleProductsSort(
+                                                                    "product"
+                                                                )
+                                                            }
+                                                        >
+                                                            <div className="flex items-center space-x-1">
+                                                                <span>
+                                                                    Product
+                                                                </span>
+                                                                {productsSortColumn ===
+                                                                    "product" && (
+                                                                    <span>
+                                                                        {productsSortDirection ===
+                                                                        "asc"
+                                                                            ? "↑"
+                                                                            : "↓"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </th>
-                                                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Price
+                                                        <th
+                                                            className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                            onClick={() =>
+                                                                handleProductsSort(
+                                                                    "price"
+                                                                )
+                                                            }
+                                                        >
+                                                            <div className="flex items-center justify-end space-x-1">
+                                                                <span>
+                                                                    Price
+                                                                </span>
+                                                                {productsSortColumn ===
+                                                                    "price" && (
+                                                                    <span>
+                                                                        {productsSortDirection ===
+                                                                        "asc"
+                                                                            ? "↑"
+                                                                            : "↓"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </th>
-                                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                            Date
+                                                        <th
+                                                            className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                                                            onClick={() =>
+                                                                handleProductsSort(
+                                                                    "date"
+                                                                )
+                                                            }
+                                                        >
+                                                            <div className="flex items-center space-x-1">
+                                                                <span>
+                                                                    Date
+                                                                </span>
+                                                                {productsSortColumn ===
+                                                                    "date" && (
+                                                                    <span>
+                                                                        {productsSortDirection ===
+                                                                        "asc"
+                                                                            ? "↑"
+                                                                            : "↓"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="bg-white divide-y divide-gray-200">
-                                                    {stylistProducts.map(
+                                                    {sortedProducts.map(
                                                         (product: Product) => (
                                                             <Fragment
                                                                 key={product.id}
@@ -702,6 +1250,17 @@ export default function AdminDashboardPage() {
                     </div>
                 </div>
             </main>
+            <ServiceForm
+                isOpen={isServiceFormOpen}
+                onClose={() => {
+                    setIsServiceFormOpen(false);
+                    setEditingService(null);
+                }}
+                service={editingService}
+                currentCycleId={currentCycleId || ""}
+                allowCycleSelection={true}
+                availableCycles={allCycles}
+            />
         </div>
     );
 }

@@ -614,7 +614,6 @@ export default function ServiceForm({
                         <Label htmlFor="name">Service</Label>
                         <Input
                             id="name"
-                            name="name"
                             autoComplete="off"
                             {...register("name")}
                             placeholder="e.g., Haircut"
@@ -629,7 +628,6 @@ export default function ServiceForm({
                         <Label htmlFor="customer">Customer</Label>
                         <Input
                             id="customer"
-                            name="customer"
                             autoComplete="name"
                             {...register("customer")}
                             placeholder="e.g., John Doe"
@@ -645,7 +643,6 @@ export default function ServiceForm({
                             <Label htmlFor="tip">Tip</Label>
                             <Input
                                 id="tip"
-                                name="tip"
                                 type="number"
                                 step="0.01"
                                 autoComplete="off"
@@ -794,7 +791,6 @@ export default function ServiceForm({
                             <Label htmlFor="price">Price</Label>
                             <Input
                                 id="price"
-                                name="price"
                                 type="number"
                                 step="0.01"
                                 autoComplete="off"
@@ -849,7 +845,6 @@ export default function ServiceForm({
                                         <>
                                             <Input
                                                 id={amountId}
-                                                name={`payments.${idx}.amount`}
                                                 type="number"
                                                 step="0.01"
                                                 autoComplete="off"
@@ -862,7 +857,6 @@ export default function ServiceForm({
                                             {pm.value === "other" && (
                                                 <Input
                                                     id={labelId}
-                                                    name={`payments.${idx}.label`}
                                                     autoComplete="off"
                                                     className="ml-2"
                                                     placeholder="Specify method"
@@ -886,7 +880,6 @@ export default function ServiceForm({
                         <Label htmlFor="notes">Notes</Label>
                         <Textarea
                             id="notes"
-                            name="notes"
                             autoComplete="off"
                             {...register("notes")}
                             placeholder="Optional notes about the service"

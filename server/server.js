@@ -691,22 +691,27 @@ app.patch("/api/cycles/:cycleId", authenticateUser, (req, res) => {
     });
 });
 
-app.delete("/api/cycles/:cycleId", authenticateUser, (req, res) => {
-    const { cycleId } = req.params;
-    // Foreign key ON DELETE CASCADE for services.cycle_id will handle deleting associated services
-    db.run("DELETE FROM cycles WHERE id = ?", [cycleId], function (err) {
-        if (err) {
-            return res.status(500).json({ error: err.message });
-        }
-        if (this.changes === 0) {
-            return res.status(404).json({ error: "Cycle not found." });
-        }
-        res.status(200).json({
-            success: true,
-            message: "Cycle and associated services deleted successfully.",
+app.delete(
+    "/api/cycles/:cycleId",
+    authenticateUser,
+    requireAdmin,
+    (req, res) => {
+        const { cycleId } = req.params;
+        // Foreign key ON DELETE CASCADE for services.cycle_id will handle deleting associated services
+        db.run("DELETE FROM cycles WHERE id = ?", [cycleId], function (err) {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            if (this.changes === 0) {
+                return res.status(404).json({ error: "Cycle not found." });
+            }
+            res.status(200).json({
+                success: true,
+                message: "Cycle and associated services deleted successfully.",
+            });
         });
-    });
-});
+    }
+);
 
 // --- Service Endpoints --- (Protected by authenticateUser)
 
@@ -1287,30 +1292,35 @@ function updateServiceWithCycleId(
 app.delete("/api/services/:serviceId", authenticateUser, (req, res) => {
     const { serviceId } = req.params;
     const userId = req.user.id;
+    const isAdmin = req.user.role === "admin";
 
     // The 'cycleId' from frontend is for cache invalidation, not strictly needed for deletion here
     // but good to be aware it might be sent.
 
-    db.run(
-        "DELETE FROM services WHERE id = ? AND user_id = ?",
-        [serviceId, userId],
-        function (err) {
-            if (err) {
-                return res.status(500).json({
-                    error: "Failed to delete service: " + err.message,
-                });
-            }
-            if (this.changes === 0) {
-                return res
-                    .status(404)
-                    .json({ error: "Service not found or not owned by user." });
-            }
-            res.status(200).json({
-                success: true,
-                message: "Service deleted successfully.",
+    // Admins can delete any service, regular users can only delete their own
+    const sql = isAdmin
+        ? "DELETE FROM services WHERE id = ?"
+        : "DELETE FROM services WHERE id = ? AND user_id = ?";
+    const params = isAdmin ? [serviceId] : [serviceId, userId];
+
+    db.run(sql, params, function (err) {
+        if (err) {
+            return res.status(500).json({
+                error: "Failed to delete service: " + err.message,
             });
         }
-    );
+        if (this.changes === 0) {
+            return res.status(404).json({
+                error: isAdmin
+                    ? "Service not found."
+                    : "Service not found or not owned by user.",
+            });
+        }
+        res.status(200).json({
+            success: true,
+            message: "Service deleted successfully.",
+        });
+    });
 });
 
 // --- Product Endpoints --- (Protected by authenticateUser)

@@ -5,6 +5,7 @@ import { skipToken } from "@reduxjs/toolkit/query";
 import {
     useGetCyclesQuery,
     useCreateCycleMutation,
+    useDeleteCycleMutation,
     useGetServicesQuery,
     Cycle,
     NewCycle,
@@ -19,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import CreateCycleForm from "@/components/dashboard/CreateCycleForm";
 import CycleNotesDialog from "@/components/dashboard/CycleNotesDialog";
+import DeleteConfirmationModal from "@/components/dashboard/DeleteConfirmationModal";
 import { toast } from "sonner";
 import { useSelector } from "react-redux";
 import { selectAuth } from "@/lib/slices/authSlice";
@@ -36,7 +38,10 @@ export default function CycleManager({
 }: CycleManagerProps) {
     const [isCreateCycleFormOpen, setIsCreateCycleFormOpen] = useState(false);
     const [isNotesDialogOpen, setIsNotesDialogOpen] = useState(false);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [addCycle, { isLoading: isAddingCycle }] = useCreateCycleMutation();
+    const [deleteCycle, { isLoading: isDeletingCycle }] =
+        useDeleteCycleMutation();
 
     const handleCreateCycle = async (cycleData: Omit<Cycle, "id">) => {
         try {
@@ -50,6 +55,35 @@ export default function CycleManager({
             const errorMessage =
                 (err as any)?.data?.message || "An unexpected error occurred.";
             toast.error(`Error creating cycle: ${errorMessage}`);
+        }
+    };
+
+    const handleDeleteCycle = async () => {
+        if (!currentCycleId || !cycles) return;
+
+        const cycleToDelete = cycles.find(
+            (c: Cycle) => String(c.id) === String(currentCycleId)
+        );
+        if (!cycleToDelete) return;
+
+        try {
+            await deleteCycle(currentCycleId).unwrap();
+            toast.success(
+                `Cycle "${
+                    cycleToDelete.name ||
+                    `${formatDate(cycleToDelete.startDate)} - ${formatDate(
+                        cycleToDelete.endDate
+                    )}`
+                }" deleted successfully!`
+            );
+            setIsDeleteModalOpen(false);
+            // Clear the selection since the cycle no longer exists
+            onCycleChange("");
+        } catch (err) {
+            console.error("Failed to delete cycle:", err);
+            const errorMessage =
+                (err as any)?.data?.message || "An unexpected error occurred.";
+            toast.error(`Error deleting cycle: ${errorMessage}`);
         }
     };
     const { data: cycles, isLoading, isError, error } = useGetCyclesQuery();
@@ -251,13 +285,23 @@ export default function CycleManager({
                     </Button>
                 )}
                 {currentCycleId && (
-                    <Button
-                        onClick={() => setIsNotesDialogOpen(true)}
-                        variant="outline"
-                        className="w-full sm:w-auto"
-                    >
-                        {currentCycle?.notes ? "Edit Notes" : "Add Notes"}
-                    </Button>
+                    <>
+                        <Button
+                            onClick={() => setIsNotesDialogOpen(true)}
+                            variant="outline"
+                            className="w-full sm:w-auto"
+                        >
+                            {currentCycle?.notes ? "Edit Notes" : "Add Notes"}
+                        </Button>
+                        <Button
+                            onClick={() => setIsDeleteModalOpen(true)}
+                            variant="destructive"
+                            className="w-full sm:w-auto"
+                            disabled={isDeletingCycle}
+                        >
+                            Delete Cycle
+                        </Button>
+                    </>
                 )}
             </div>
             {/* Display cycle notes if they exist */}
@@ -298,6 +342,23 @@ export default function CycleManager({
                 cycle={currentCycle || null}
                 isOpen={isNotesDialogOpen}
                 onClose={() => setIsNotesDialogOpen(false)}
+            />
+            <DeleteConfirmationModal
+                isOpen={isDeleteModalOpen}
+                onClose={() => setIsDeleteModalOpen(false)}
+                onConfirm={handleDeleteCycle}
+                title="Delete Cycle"
+                description={
+                    currentCycle
+                        ? `Are you sure you want to delete the cycle "${
+                              currentCycle.name ||
+                              `${formatDate(
+                                  currentCycle.startDate
+                              )} - ${formatDate(currentCycle.endDate)}`
+                          }"? This will also delete all associated services. This action cannot be undone.`
+                        : "Are you sure you want to delete this cycle? This will also delete all associated services. This action cannot be undone."
+                }
+                isLoading={isDeletingCycle}
             />
             {currentCycleId && servicesForCycle && (
                 <div className="mt-2 w-full flex flex-nowrap items-center justify-between bg-gray-50 dark:bg-gray-800/50 px-3 py-2 rounded-md">

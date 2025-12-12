@@ -12,6 +12,7 @@ import {
     useGetServicesForUserQuery,
     useGetProductsForUserQuery,
     useGetAdminCyclesQuery,
+    useDeleteServiceMutation,
     type CycleStats,
     type Service,
     type Product,
@@ -21,7 +22,9 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { skipToken } from "@reduxjs/toolkit/query";
 import ServiceForm from "@/components/dashboard/ServiceForm";
+import DeleteConfirmationModal from "@/components/dashboard/DeleteConfirmationModal";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export default function AdminDashboardPage() {
     const router = useRouter();
@@ -46,6 +49,10 @@ export default function AdminDashboardPage() {
     );
     const [editingService, setEditingService] = useState<Service | null>(null);
     const [isServiceFormOpen, setIsServiceFormOpen] = useState(false);
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [serviceToDelete, setServiceToDelete] = useState<Service | null>(
+        null
+    );
 
     // Sorting state for main stats table
     const [statsSortColumn, setStatsSortColumn] = useState<string | null>(null);
@@ -93,6 +100,9 @@ export default function AdminDashboardPage() {
                 ? { cycleId: currentCycleId, userId: selectedStylist.id }
                 : skipToken
         );
+
+    const [deleteService, { isLoading: isDeletingService }] =
+        useDeleteServiceMutation();
 
     const { data: cycleStats, isLoading: isLoadingStats } =
         useGetCycleStatsQuery(currentCycleId || "", { skip: !currentCycleId });
@@ -272,6 +282,34 @@ export default function AdminDashboardPage() {
               }
           })
         : [];
+
+    const handleDeleteService = (service: Service) => {
+        setServiceToDelete(service);
+        setIsDeleteModalOpen(true);
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!serviceToDelete) return;
+
+        try {
+            await deleteService(serviceToDelete.id).unwrap();
+            toast.success(
+                `Service "${serviceToDelete.name}" deleted successfully!`
+            );
+            setIsDeleteModalOpen(false);
+            setServiceToDelete(null);
+        } catch (err) {
+            console.error("Failed to delete service:", err);
+            const errorMessage =
+                (err as any)?.data?.message || "An unexpected error occurred.";
+            toast.error(`Error deleting service: ${errorMessage}`);
+        }
+    };
+
+    const handleCancelDelete = () => {
+        setIsDeleteModalOpen(false);
+        setServiceToDelete(null);
+    };
 
     if (loading || !isAuthenticated) {
         return (
@@ -748,20 +786,36 @@ export default function AdminDashboardPage() {
                                                                             e.stopPropagation()
                                                                         }
                                                                     >
-                                                                        <Button
-                                                                            variant="outline"
-                                                                            size="sm"
-                                                                            onClick={() => {
-                                                                                setEditingService(
-                                                                                    svc
-                                                                                );
-                                                                                setIsServiceFormOpen(
-                                                                                    true
-                                                                                );
-                                                                            }}
-                                                                        >
-                                                                            Edit
-                                                                        </Button>
+                                                                        <div className="flex space-x-2">
+                                                                            <Button
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                onClick={() => {
+                                                                                    setEditingService(
+                                                                                        svc
+                                                                                    );
+                                                                                    setIsServiceFormOpen(
+                                                                                        true
+                                                                                    );
+                                                                                }}
+                                                                            >
+                                                                                Edit
+                                                                            </Button>
+                                                                            <Button
+                                                                                variant="destructive"
+                                                                                size="sm"
+                                                                                onClick={() =>
+                                                                                    handleDeleteService(
+                                                                                        svc
+                                                                                    )
+                                                                                }
+                                                                                disabled={
+                                                                                    isDeletingService
+                                                                                }
+                                                                            >
+                                                                                Delete
+                                                                            </Button>
+                                                                        </div>
                                                                     </td>
                                                                 </tr>
 
@@ -1260,6 +1314,18 @@ export default function AdminDashboardPage() {
                 currentCycleId={currentCycleId || ""}
                 allowCycleSelection={true}
                 availableCycles={allCycles}
+            />
+            <DeleteConfirmationModal
+                isOpen={isDeleteModalOpen}
+                onClose={handleCancelDelete}
+                onConfirm={handleConfirmDelete}
+                title="Delete Service"
+                description={
+                    serviceToDelete
+                        ? `Are you sure you want to delete the service "${serviceToDelete.name}"? This action cannot be undone.`
+                        : "Are you sure you want to delete this service? This action cannot be undone."
+                }
+                isLoading={isDeletingService}
             />
         </div>
     );

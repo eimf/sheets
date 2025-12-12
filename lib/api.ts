@@ -104,7 +104,7 @@ export interface NewProduct {
 
 // --- Base Query Setup ---
 const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
-const baseQuery = fetchBaseQuery({
+const baseQueryWithAuth = fetchBaseQuery({
     baseUrl: `${baseUrl}/api`,
     credentials: "include",
     prepareHeaders: (headers) => {
@@ -117,6 +117,30 @@ const baseQuery = fetchBaseQuery({
         return headers;
     },
 });
+
+// Wrap baseQuery to handle 401s gracefully for auth endpoints
+const baseQuery = async (args: any, api: any, extraOptions: any) => {
+    const result = await baseQueryWithAuth(args, api, extraOptions);
+
+    // For auth/profile endpoint, 401 is expected when not authenticated
+    // Don't treat it as an error to avoid console noise
+    if (
+        result.error &&
+        result.error.status === 401 &&
+        typeof args === "object" &&
+        args.url === "/auth/profile"
+    ) {
+        // Return a result that won't trigger error handling
+        return {
+            error: {
+                status: 401,
+                data: { error: "Unauthorized" },
+            },
+        };
+    }
+
+    return result;
+};
 
 // --- API Slice Definition ---
 export const apiSlice = createApi({

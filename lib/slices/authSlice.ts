@@ -44,14 +44,22 @@ export const refreshSession = createAsyncThunk<
             },
         });
 
-        const data = await response.json();
-        if (!response.ok) {
-            // Don't log expected errors (401 for invalid/expired tokens)
-            if (response.status === 401) {
-                return rejectWithValue("Invalid or expired session");
+        // Handle 401 (unauthorized) - expected when token is invalid/expired
+        if (response.status === 401) {
+            // Clear invalid token from storage
+            if (typeof window !== "undefined") {
+                localStorage.removeItem("salonToken");
+                localStorage.removeItem("salonUser");
             }
+            return rejectWithValue("Invalid or expired session");
+        }
+
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
             throw new Error(data.error || "Failed to fetch profile");
         }
+
+        const data = await response.json();
 
         // Handle both response formats: { success: true, user: {...} } or just { user: {...} }
         const user = data.user || data;

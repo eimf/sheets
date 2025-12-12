@@ -1,8 +1,12 @@
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import { useGetProfileQuery } from '@/lib/api';
-import { useGetAdminCyclesQuery, useGetCycleStatsQuery, CycleStats } from '@/lib/adminApi';
-import { formatCurrency } from '@/lib/utils';
+import { useState, useEffect } from "react";
+import { useRouter } from "next/router";
+import { useGetProfileQuery } from "@/lib/api";
+import {
+    useGetAdminCyclesQuery,
+    useGetCycleStatsQuery,
+    CycleStats,
+} from "@/lib/adminApi";
+import { formatCurrency } from "@/lib/utils";
 
 interface Cycle {
     id: string | number;
@@ -13,21 +17,33 @@ interface Cycle {
 
 const AdminDashboard = () => {
     const router = useRouter();
-    const [selectedCycleId, setSelectedCycleId] = useState<string>('');
-    
+    const [selectedCycleId, setSelectedCycleId] = useState<string>("");
+
+    // Check if there's a token before making the profile query
+    const hasToken =
+        typeof window !== "undefined" && !!localStorage.getItem("salonToken");
+
     // Check if user is admin
-    const { data: user, isLoading: isLoadingUser, isError } = useGetProfileQuery();
-    const { data: cycles = [], isLoading: isLoadingCycles } = useGetAdminCyclesQuery(undefined, {
-        skip: !user || user.role !== 'admin',
+    const {
+        data: user,
+        isLoading: isLoadingUser,
+        isError,
+    } = useGetProfileQuery(undefined, {
+        skip: !hasToken,
     });
-    const { data: stats = [], isLoading: isLoadingStats } = useGetCycleStatsQuery(selectedCycleId, {
-        skip: !selectedCycleId,
-    });
+    const { data: cycles = [], isLoading: isLoadingCycles } =
+        useGetAdminCyclesQuery(undefined, {
+            skip: !user || user.role !== "admin",
+        });
+    const { data: stats = [], isLoading: isLoadingStats } =
+        useGetCycleStatsQuery(selectedCycleId, {
+            skip: !selectedCycleId,
+        });
 
     // Redirect non-admin users
     useEffect(() => {
-        if (!isLoadingUser && user?.role !== 'admin') {
-            router.push('/dashboard');
+        if (!isLoadingUser && user?.role !== "admin") {
+            router.push("/dashboard");
         }
     }, [user, isLoadingUser, router]);
 
@@ -39,21 +55,34 @@ const AdminDashboard = () => {
     }, [cycles, selectedCycleId]);
 
     if (isLoadingUser || isLoadingCycles) {
-        return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+        return (
+            <div className="flex items-center justify-center min-h-screen">
+                Loading...
+            </div>
+        );
     }
 
-    if (isError || user?.role !== 'admin') {
-        return <div className="flex items-center justify-center min-h-screen">Access Denied</div>;
+    if (isError || user?.role !== "admin") {
+        return (
+            <div className="flex items-center justify-center min-h-screen">
+                Access Denied
+            </div>
+        );
     }
 
-    const selectedCycle = cycles.find((cycle: Cycle) => cycle.id.toString() === selectedCycleId);
+    const selectedCycle = cycles.find(
+        (cycle: Cycle) => cycle.id.toString() === selectedCycleId
+    );
 
     return (
         <div className="container mx-auto px-4 py-8">
             <h1 className="text-2xl font-bold mb-6">Admin Dashboard</h1>
-            
+
             <div className="mb-6">
-                <label htmlFor="cycle-select" className="block text-sm font-medium text-gray-700 mb-2">
+                <label
+                    htmlFor="cycle-select"
+                    className="block text-sm font-medium text-gray-700 mb-2"
+                >
                     Select Cycle:
                 </label>
                 <select
@@ -75,7 +104,7 @@ const AdminDashboard = () => {
                     <h2 className="text-xl font-semibold mb-4">
                         {selectedCycle.name} - Statistics
                     </h2>
-                    
+
                     {isLoadingStats ? (
                         <div>Loading statistics...</div>
                     ) : stats.length === 0 ? (
@@ -85,33 +114,59 @@ const AdminDashboard = () => {
                             <table className="min-w-full divide-y divide-gray-200">
                                 <thead className="bg-gray-50">
                                     <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stylist</th>
-                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Services</th>
-                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Revenue</th>
-                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Tips</th>
-                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Stylist
+                                        </th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Services
+                                        </th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Total Revenue
+                                        </th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Total Tips
+                                        </th>
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            Total
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {stats.map((stat: CycleStats, index: number) => (
-                                        <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                {stat.stylish}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                                                {stat.service_count}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                                                {formatCurrency(stat.total_price)}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                                                {formatCurrency(stat.total_tips)}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right">
-                                                {formatCurrency(stat.total_price + stat.total_tips)}
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {stats.map(
+                                        (stat: CycleStats, index: number) => (
+                                            <tr
+                                                key={index}
+                                                className={
+                                                    index % 2 === 0
+                                                        ? "bg-white"
+                                                        : "bg-gray-50"
+                                                }
+                                            >
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                    {stat.stylish}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                                                    {stat.service_count}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                                                    {formatCurrency(
+                                                        stat.total_price
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                                                    {formatCurrency(
+                                                        stat.total_tips
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right">
+                                                    {formatCurrency(
+                                                        stat.total_price +
+                                                            stat.total_tips
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        )
+                                    )}
                                     {/* Totals row */}
                                     {stats.length > 0 && (
                                         <tr className="bg-gray-50 font-semibold">
@@ -119,17 +174,54 @@ const AdminDashboard = () => {
                                                 Totals
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                                                {stats.reduce((sum: number, stat: CycleStats) => sum + stat.service_count, 0)}
+                                                {stats.reduce(
+                                                    (
+                                                        sum: number,
+                                                        stat: CycleStats
+                                                    ) =>
+                                                        sum +
+                                                        stat.service_count,
+                                                    0
+                                                )}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                                                {formatCurrency(stats.reduce((sum: number, stat: CycleStats) => sum + stat.total_price, 0))}
+                                                {formatCurrency(
+                                                    stats.reduce(
+                                                        (
+                                                            sum: number,
+                                                            stat: CycleStats
+                                                        ) =>
+                                                            sum +
+                                                            stat.total_price,
+                                                        0
+                                                    )
+                                                )}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                                                {formatCurrency(stats.reduce((sum: number, stat: CycleStats) => sum + stat.total_tips, 0))}
+                                                {formatCurrency(
+                                                    stats.reduce(
+                                                        (
+                                                            sum: number,
+                                                            stat: CycleStats
+                                                        ) =>
+                                                            sum +
+                                                            stat.total_tips,
+                                                        0
+                                                    )
+                                                )}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right">
                                                 {formatCurrency(
-                                                    stats.reduce((sum: number, stat: CycleStats) => sum + stat.total_price + stat.total_tips, 0)
+                                                    stats.reduce(
+                                                        (
+                                                            sum: number,
+                                                            stat: CycleStats
+                                                        ) =>
+                                                            sum +
+                                                            stat.total_price +
+                                                            stat.total_tips,
+                                                        0
+                                                    )
                                                 )}
                                             </td>
                                         </tr>

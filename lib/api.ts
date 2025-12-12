@@ -289,22 +289,29 @@ export const apiSlice = createApi({
 
                 // Invalidate tags for both old and new cycles
                 const tagsToInvalidate: Array<
-                    { type: string; id?: string } | string
+                    | {
+                          type: "Cycle" | "User" | "Service" | "Product";
+                          id?: string;
+                      }
+                    | "Cycle"
+                    | "User"
+                    | "Service"
+                    | "Product"
                 > = [
-                    { type: "Service", id },
-                    "Cycle", // This invalidates all cycle stats since getCycleStats provides "Cycle" tag
+                    { type: "Service" as const, id },
+                    "Cycle" as const, // This invalidates all cycle stats since getCycleStats provides "Cycle" tag
                 ];
 
                 // Also invalidate specific cycle stats for both old and new cycles
                 if (newCycleId) {
                     tagsToInvalidate.push({
-                        type: "Cycle",
+                        type: "Cycle" as const,
                         id: `STATS-${newCycleId}`,
                     });
                 }
                 if (oldCycleId && oldCycleId !== newCycleId) {
                     tagsToInvalidate.push({
-                        type: "Cycle",
+                        type: "Cycle" as const,
                         id: `STATS-${oldCycleId}`,
                     });
                 }
@@ -313,19 +320,34 @@ export const apiSlice = createApi({
             },
             invalidatesTags: (result, error, arg) => {
                 // Fallback invalidation
-                const tags: Array<{ type: string; id?: string } | string> = [
-                    { type: "Service", id: arg.id },
-                    "Cycle",
+                const tags: Array<
+                    | {
+                          type: "Cycle" | "User" | "Service" | "Product";
+                          id?: string;
+                      }
+                    | "Cycle"
+                    | "User"
+                    | "Service"
+                    | "Product"
+                > = [
+                    { type: "Service" as const, id: arg.id },
+                    "Cycle" as const,
                 ];
 
                 // Invalidate stats for the cycleId in the update (new cycle)
                 if (arg.cycleId) {
-                    tags.push({ type: "Cycle", id: `STATS-${arg.cycleId}` });
+                    tags.push({
+                        type: "Cycle" as const,
+                        id: `STATS-${arg.cycleId}`,
+                    });
                 }
 
                 // Invalidate stats for the cycleId in the result (new cycle after update)
                 if (result?.cycleId) {
-                    tags.push({ type: "Cycle", id: `STATS-${result.cycleId}` });
+                    tags.push({
+                        type: "Cycle" as const,
+                        id: `STATS-${result.cycleId}`,
+                    });
                 }
 
                 return tags;
